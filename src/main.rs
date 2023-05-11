@@ -1,3 +1,5 @@
+mod util;
+
 use std::{fs, io::Write, path::Path};
 
 use zip::{write::FileOptions, ZipWriter};
@@ -7,11 +9,11 @@ fn main() {
 
     let source_path = Path::new("C:\\Users\\11818\\Desktop\\source.json");
 
-    let content = std::fs::read_to_string(source_path);
+    let content = fs::read_to_string(source_path);
 
     println!("{}", content.unwrap());
 
-    let target_file = std::fs::File::create(target_path).unwrap();
+    let target_file = fs::File::create(target_path).unwrap();
 
     println!("{:?}", target_file);
 
@@ -31,7 +33,7 @@ fn zip_file_test() {
     let target_path = Path::new("C:\\Users\\11818\\Desktop\\target.zip");
 
     let source_path = Path::new("C:\\Users\\11818\\Desktop\\source.json");
-    let target_file = std::fs::File::create(target_path).unwrap();
+    let target_file = fs::File::create(target_path).unwrap();
     let mut zip_writer = ZipWriter::new(target_file);
 
     zip_writer
