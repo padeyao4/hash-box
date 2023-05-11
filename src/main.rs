@@ -1,6 +1,8 @@
 mod util;
 
 use std::{fs, io::Write, path::Path};
+use std::env::var;
+use tempfile::tempfile;
 
 use zip::{write::FileOptions, ZipWriter};
 
@@ -53,4 +55,12 @@ fn unzip_file_test() {
     let mut zip_archive = ZipArchive::new(zip_file).unwrap();
     let path = Path::new("C:\\Users\\11818\\Desktop\\test");
     zip_archive.extract(path).unwrap();
+}
+
+#[test]
+fn test_temp_dir() {
+    {
+        let temp = tempfile().unwrap();
+        println!("{:?}", temp);
+    }
 }
