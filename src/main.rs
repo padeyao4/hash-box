@@ -1,12 +1,16 @@
-mod util;
-
 use std::{fs, io::Write, path::Path};
-use std::env::var;
-use tempfile::tempfile;
+use std::env::{set_var, var};
 
+use log::{info, log};
+use tempfile::tempfile;
 use zip::{write::FileOptions, ZipWriter};
 
+mod util;
+
 fn main() {
+    set_var("RUST_LOG", "debug");
+    env_logger::init();
+
     let target_path = Path::new("C:\\Users\\11818\\Desktop\\target.zip");
 
     let source_path = Path::new("C:\\Users\\11818\\Desktop\\source.json");
@@ -63,4 +67,11 @@ fn test_temp_dir() {
         let temp = tempfile().unwrap();
         println!("{:?}", temp);
     }
+}
+
+#[test]
+fn log_test() {
+    set_var("RUST_LOG", "debug");
+    env_logger::init();
+    info!("hello");
 }
