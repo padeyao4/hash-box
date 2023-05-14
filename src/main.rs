@@ -1,37 +1,29 @@
 use std::{fs, io::Write, path::Path};
 use std::env::{set_var, var};
+use clap::Parser;
 
 use log::{info, log};
-use tempfile::tempfile;
+use tempfile::{tempdir, tempfile};
 use zip::{write::FileOptions, ZipWriter};
+use crate::cli::Cli;
 
 mod util;
+mod cli;
 
-fn main() {
+fn main() -> std::io::Result<()> {
     set_var("RUST_LOG", "debug");
     env_logger::init();
+    let command = Cli::parse();
 
-    let target_path = Path::new("C:\\Users\\11818\\Desktop\\target.zip");
+    let input_path = command.input;
+    info!("input path {:?}",input_path);
+    let output_path = command.output;
+    info!("output path {:?}",output_path);
+    let template_path = command.temp;
+    info!("template path {:?}",template_path);
 
-    let source_path = Path::new("C:\\Users\\11818\\Desktop\\source.json");
-
-    let content = fs::read_to_string(source_path);
-
-    println!("{}", content.unwrap());
-
-    let target_file = fs::File::create(target_path).unwrap();
-
-    println!("{:?}", target_file);
-
-    let mut zip_writer = ZipWriter::new(target_file);
-
-    zip_writer
-        .start_file("source.json", FileOptions::default())
-        .unwrap();
-    zip_writer
-        .write(fs::read_to_string(source_path).unwrap().as_bytes())
-        .unwrap();
-    zip_writer.finish().unwrap();
+    util::zip(input_path.as_path(), output_path.as_path())?;
+    Ok(())
 }
 
 #[test]
@@ -74,4 +66,15 @@ fn log_test() {
     set_var("RUST_LOG", "debug");
     env_logger::init();
     info!("hello");
+}
+
+#[test]
+fn zip_test() {
+    set_var("RUST_LOG", "debug");
+    env_logger::init();
+    // util::zip(Path::new("Cargo.lock"), Path::new("1.zip"),tempfile()?.).unwrap();
+    let mut temp_dir = tempdir();
+    let a = &temp_dir.unwrap();
+    let p = a.path();
+    info!("temp dir {:?}",p);
 }

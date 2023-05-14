@@ -1,25 +1,45 @@
 use std::fs;
+use std::fs::File;
 use std::io::Write;
 use std::path::Path;
-use log::log;
+use std::process::exit;
+use log::{error, info, warn};
 use zip::write::FileOptions;
 use zip::ZipWriter;
 
-pub fn zip(source: &Path, target: &Path) -> std::io::Result<()> {
-    // if Path::exists(target) {
-    //     log!("hell","1212");
-    // }
+pub fn zip(src: &Path, dsc: &Path) -> std::io::Result<()> {
+    if !Path::exists(src) {
+        error!("{} not exists, exit",src.display());
+        exit(-1);
+    }
 
-    // let target_file = fs::File::create(target_path).unwrap();
-    // let mut zip_writer = ZipWriter::new(target_file);
-    //
-    // zip_writer
-    //     .start_file("source.json", FileOptions::default())
-    //     .unwrap();
-    // zip_writer
-    //     .write(fs::read_to_string(source_path).unwrap().as_bytes())
-    //     .unwrap();
-    // zip_writer.finish().unwrap();
+    if Path::exists(dsc) {
+        warn!("{} exists, rewrite the file",dsc.display());
+    }
+
+    let dsc_file = File::create(dsc)?;
+    let mut zip_writer = ZipWriter::new(dsc_file);
+
+    let entries = walkdir::WalkDir::new(src)
+        .follow_links(false)
+        .sort_by_file_name()
+        .into_iter()
+        .filter_map(|f| f.ok());
+
+    for entry in entries {
+        // todo 根据不同文件类型处理
+        if entry.path_is_symlink() {
+            info!("symlink {:?}",entry);
+        } else if Path::is_dir(entry.path()) {
+            info!("directory {:?}",entry);
+        } else {
+            info!("file {:?}",entry);
+        }
+    }
+
+    // zip_writer.start_file("hello", FileOptions::default())?;
+    // zip_writer.write_all("hello world".as_bytes())?;
+    // zip_writer.finish()?;
     Ok(())
 }
 
