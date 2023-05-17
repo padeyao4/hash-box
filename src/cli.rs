@@ -1,15 +1,32 @@
 use std::path::PathBuf;
-use clap::Parser;
 
-#[derive(Debug, Parser)]
+use clap::{Parser, Subcommand};
+
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+#[command(propagate_version = true)]
 pub struct Cli {
-    /// input directory path
-    #[arg(short, long)]
-    pub(crate) input: PathBuf,
-    ///output directory path
-    #[arg(short, long)]
-    pub(crate) output: PathBuf,
-    /// template directory path
-    #[arg(short, long)]
-    pub(crate) temp: PathBuf,
+    #[command(subcommand)]
+    pub command: Commands,
+}
+
+#[derive(Subcommand)]
+pub enum Commands {
+    /// Zip directory or file to destination
+    Zip {
+        src: PathBuf,
+        dsc: PathBuf,
+    },
+
+    /// Unzip file
+    Unzip {
+        src: PathBuf,
+        dsc: PathBuf,
+    },
+
+    /// Store files, the current file is divided into small files, compressed and stored
+    Store {},
+
+    /// Incrementally synchronize files from the server side
+    Sync {},
 }

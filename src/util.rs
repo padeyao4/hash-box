@@ -7,7 +7,9 @@ use log::{error, info, warn};
 use zip::write::FileOptions;
 use zip::ZipWriter;
 
+/// 压缩目录或者文件，保持md5值不会改变
 pub fn zip(src: &Path, dsc: &Path) -> std::io::Result<()> {
+    info!("zip {:?} to {:?}",src,dsc);
     if !Path::exists(src) {
         error!("{} not exists, exit",src.display());
         exit(-1);
