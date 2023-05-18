@@ -1,14 +1,16 @@
-use std::fs;
+use std::{fs, io, path};
 use std::fs::File;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::Path;
 use std::process::exit;
+
 use log::{error, info, warn};
+use zip::{DateTime, ZipArchive, ZipWriter};
+use zip::read::ZipFile;
 use zip::write::FileOptions;
-use zip::ZipWriter;
 
 /// 压缩目录或者文件，保持md5值不会改变
-pub fn zip(src: &Path, dsc: &Path) -> std::io::Result<()> {
+pub fn zip(src: &Path, dsc: &Path) -> io::Result<()> {
     info!("zip {:?} to {:?}",src,dsc);
     if !Path::exists(src) {
         error!("{} not exists, exit",src.display());
@@ -28,23 +30,90 @@ pub fn zip(src: &Path, dsc: &Path) -> std::io::Result<()> {
         .into_iter()
         .filter_map(|f| f.ok());
 
+    let options = FileOptions::default()
+        .compression_level(Option::Some(1))
+        .unix_permissions(0o755)
+        .last_modified_time(DateTime::default());
+
+    let mut buff = Vec::new();
     for entry in entries {
-        // todo 根据不同文件类型处理
+        let path = entry.path();
         if entry.path_is_symlink() {
-            info!("symlink {:?}",entry);
+            info!("l {:?}",path);
+            todo!("handle symlink");
         } else if Path::is_dir(entry.path()) {
-            info!("directory {:?}",entry);
+            info!("d {:?}",path);
+            todo!("handle directory");
         } else {
-            info!("file {:?}",entry);
+            info!("f {:?}",path);
+            let file_name = entry.file_name().to_str().unwrap();
+            zip_writer.start_file(file_name, options)?;
+            let mut f = File::open(path)?;
+            // todo 当读写大文件时,可能会出现内存问题
+            f.read_to_end(&mut buff)?;
+            zip_writer.write_all(&mut buff)?;
+            buff.clear();
         }
     }
-
-    // zip_writer.start_file("hello", FileOptions::default())?;
-    // zip_writer.write_all("hello world".as_bytes())?;
-    // zip_writer.finish()?;
+    zip_writer.finish()?;
     Ok(())
 }
 
-pub fn unzip(source: &Path, target: &Path) {}
+/// unzip file
+pub fn unzip(src: &Path, dsc: &Path) -> io::Result<()> {
+    if !Path::exists(src) {
+        error!("{:?} not exits,will exit!",src);
+        exit(-1);
+    }
+    if Path::exists(dsc) {
+        warn!("{:?} exists,will rewrite the files",dsc);
+    }
+    let f = File::open(src)?;
+    let mut archive = ZipArchive::new(f)?;
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i)?;
+        let output = match file.enclosed_name() {
+            Some(path) => path.to_owned(),
+            None => continue
+        };
 
-pub fn sum_md5(path: &Path) {}
+        {
+            let comment = file.comment();
+            if !comment.is_empty() {
+                info!("file {i} comment : {comment}");
+            }
+        }
+
+        // todo 解压需要考虑软连接
+        if file.name().ends_with('/') {
+            info!("file {} extracted to \"{}\"",i,output.display());
+            fs::create_dir_all(&output)?;
+        } else {
+            info!("file {} extracted to \"{}\" ({} bytes)",i,output.display(),file.size());
+            if let Some(p) = output.parent() {
+                if !p.exists() {
+                    fs::create_dir_all(p)?;
+                }
+            }
+            let mut outfile = File::create(&output)?;
+            io::copy(&mut file, &mut outfile)?;
+        }
+
+        // Get and Set permissions
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            if let Some(mode) = file.unix_mode() {
+                fs::set_permissions(&outpath, fs::Permissions::from_mode(mode)).unwrap();
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// sum the file of md5 value
+pub fn md5(path: &Path) {
+    todo!("sum md5 value");
+}

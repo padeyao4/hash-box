@@ -20,8 +20,8 @@ fn main() -> std::io::Result<()> {
         Commands::Zip { src, dsc } => {
             util::zip(src.as_path(), dsc.as_path())?;
         }
-        Commands::Unzip { .. } => {
-            todo!("unzip")
+        Commands::Unzip { src, dsc } => {
+            util::unzip(src.as_path(), dsc.as_path())?;
         }
         Commands::Store { .. } => {
             todo!("store")
