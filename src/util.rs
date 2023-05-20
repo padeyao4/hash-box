@@ -80,15 +80,12 @@ pub fn unzip(src: &Path, dsc: &Path) -> io::Result<()> {
         {
             let comment = file.comment();
             if !comment.is_empty() {
-                info!("file {i} comment : {comment}");
+                info!("file {} comment : {}",i,comment);
             }
         }
 
-        // todo 解压需要考虑软连接
-        if file.name().ends_with('/') {
-            info!("file {} extracted to \"{}\"",i,output.display());
-            fs::create_dir_all(&output)?;
-        } else {
+        if file.is_file() {
+            // todo 考虑软连接问题
             info!("file {} extracted to \"{}\" ({} bytes)",i,output.display(),file.size());
             if let Some(p) = output.parent() {
                 if !p.exists() {
@@ -97,6 +94,9 @@ pub fn unzip(src: &Path, dsc: &Path) -> io::Result<()> {
             }
             let mut outfile = File::create(&output)?;
             io::copy(&mut file, &mut outfile)?;
+        } else {
+            info!("file {} extracted to \"{}\"",i,output.display());
+            fs::create_dir_all(&output)?;
         }
 
         // Get and Set permissions
