@@ -1,4 +1,3 @@
-use std::error::Error;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -39,21 +38,20 @@ pub fn zip(src: &Path, dsc: &Path) -> io::Result<()> {
     for entry in entries {
         let path = entry.path();
 
-        let relation = path.strip_prefix(src).unwrap();
-        let f_type = path.metadata()?.file_type();
-        info!("{:?} {} => {}", f_type, path.display(), relation.display());
-
-        let file_name = relation.to_string_lossy();
-        // let file_name = entry.file_name().to_string_lossy();
+        let relation_buf =
+            Path::new(src.file_name().unwrap()).join(path.strip_prefix(src).unwrap());
+        let relation = relation_buf.as_path();
+        let file_path = relation.to_string_lossy();
+        let name = file_path.trim_end_matches("/");
         if entry.path_is_symlink() {
-            // info!("l {:?}", path);
-            zip.add_symlink(file_name, path.read_link()?.to_string_lossy(), options)?;
+            info!("l {} => {}", path.display(), name);
+            zip.add_symlink(name, path.read_link()?.to_string_lossy(), options)?;
         } else if Path::is_dir(entry.path()) {
-            // info!("d {:?}", path);
-            zip.add_directory(file_name, options)?;
+            info!("d {} => {}", path.display(), name);
+            zip.add_directory(name, options)?;
         } else {
-            // info!("f {:?}", path);
-            zip.start_file(file_name, options)?;
+            info!("f {} => {}", path.display(), name);
+            zip.start_file(name, options)?;
             let mut f = File::open(path)?;
             // todo 当读写大文件时,可能会出现内存问题
             f.read_to_end(&mut buff)?;
@@ -116,7 +114,7 @@ pub fn unzip(src: &Path, dsc: &Path) -> io::Result<()> {
             use std::os::unix::fs::PermissionsExt;
 
             if let Some(mode) = file.unix_mode() {
-                fs::set_permissions(&outpath, fs::Permissions::from_mode(mode)).unwrap();
+                fs::set_permissions(&dsc, fs::Permissions::from_mode(mode)).unwrap();
             }
         }
     }
@@ -124,7 +122,21 @@ pub fn unzip(src: &Path, dsc: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// sum the file of md5 value
-pub fn md5(path: &Path) {
-    todo!("sum md5 value");
+#[test]
+fn walk_dir_test() {
+    use log::debug;
+    use std::env::set_var;
+    set_var("RUST_LOG", "debug");
+    env_logger::init();
+    let tmp = tempfile::tempdir().unwrap();
+    let tmp_dir = tmp.path();
+    debug!("tmp dir {:?}", tmp_dir);
+    let entries = walkdir::WalkDir::new(tmp_dir)
+        .follow_links(false)
+        .sort_by_file_name()
+        .into_iter()
+        .filter_map(|f| f.ok());
+    for entry in entries {
+        debug!("entry {:?}", entry);
+    }
 }
