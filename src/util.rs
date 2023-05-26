@@ -1,24 +1,24 @@
-use std::{fs, io, path};
+use std::error::Error;
 use std::fs::File;
-use std::io::{Error, Read, stderr, Write};
+use std::io::{Read, Write};
 use std::path::Path;
 use std::process::exit;
+use std::{fs, io};
 
 use log::{error, info, warn};
-use zip::{DateTime, ZipArchive, ZipWriter};
-use zip::read::ZipFile;
 use zip::write::FileOptions;
+use zip::{DateTime, ZipArchive, ZipWriter};
 
 /// 压缩目录或者文件，保持md5值不会改变
 pub fn zip(src: &Path, dsc: &Path) -> io::Result<()> {
-    info!("compress {:?} to {:?}",src,dsc);
+    info!("compress {:?} to {:?}", src, dsc);
     if !Path::exists(src) {
-        error!("{} not exists, exit",src.display());
+        error!("{} not exists, exit", src.display());
         exit(-1);
     }
 
     if Path::exists(dsc) {
-        warn!("{} exists, rewrite the file",dsc.display());
+        warn!("{} exists, rewrite the file", dsc.display());
     }
 
     let dsc_file = File::create(dsc)?;
@@ -38,15 +38,21 @@ pub fn zip(src: &Path, dsc: &Path) -> io::Result<()> {
     let mut buff = Vec::new();
     for entry in entries {
         let path = entry.path();
-        let file_name = entry.file_name().to_string_lossy();
+
+        let relation = path.strip_prefix(src).unwrap();
+        let f_type = path.metadata()?.file_type();
+        info!("{:?} {} => {}", f_type, path.display(), relation.display());
+
+        let file_name = relation.to_string_lossy();
+        // let file_name = entry.file_name().to_string_lossy();
         if entry.path_is_symlink() {
-            info!("l {:?}",path);
+            // info!("l {:?}", path);
             zip.add_symlink(file_name, path.read_link()?.to_string_lossy(), options)?;
         } else if Path::is_dir(entry.path()) {
-            info!("d {:?}",path);
+            // info!("d {:?}", path);
             zip.add_directory(file_name, options)?;
         } else {
-            info!("f {:?}",path);
+            // info!("f {:?}", path);
             zip.start_file(file_name, options)?;
             let mut f = File::open(path)?;
             // todo 当读写大文件时,可能会出现内存问题
@@ -62,11 +68,11 @@ pub fn zip(src: &Path, dsc: &Path) -> io::Result<()> {
 /// unzip file
 pub fn unzip(src: &Path, dsc: &Path) -> io::Result<()> {
     if !Path::exists(src) {
-        error!("{:?} not exits,will exit!",src);
+        error!("{:?} not exits,will exit!", src);
         exit(-1);
     }
     if Path::exists(dsc) {
-        warn!("{:?} exists,will rewrite the files",dsc);
+        warn!("{:?} exists,will rewrite the files", dsc);
     }
     let f = File::open(src)?;
     let mut archive = ZipArchive::new(f)?;
@@ -74,19 +80,24 @@ pub fn unzip(src: &Path, dsc: &Path) -> io::Result<()> {
         let mut file = archive.by_index(i)?;
         let output = match file.enclosed_name() {
             Some(path) => path.to_owned(),
-            None => continue
+            None => continue,
         };
 
         {
             let comment = file.comment();
             if !comment.is_empty() {
-                info!("file {} comment : {}",i,comment);
+                info!("file {} comment : {}", i, comment);
             }
         }
 
         if file.is_file() {
             // todo 考虑软连接问题
-            info!("file {} extracted to \"{}\" ({} bytes)",i,output.display(),file.size());
+            info!(
+                "file {} extracted to \"{}\" ({} bytes)",
+                i,
+                output.display(),
+                file.size()
+            );
             if let Some(p) = output.parent() {
                 if !p.exists() {
                     fs::create_dir_all(p)?;
@@ -95,7 +106,7 @@ pub fn unzip(src: &Path, dsc: &Path) -> io::Result<()> {
             let mut outfile = File::create(&output)?;
             io::copy(&mut file, &mut outfile)?;
         } else {
-            info!("file {} extracted to \"{}\"",i,output.display());
+            info!("file {} extracted to \"{}\"", i, output.display());
             fs::create_dir_all(&output)?;
         }
 
