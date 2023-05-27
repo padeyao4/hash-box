@@ -5,6 +5,7 @@ use std::process::exit;
 use std::{fs, io};
 
 use log::{error, info, warn};
+
 use zip::write::FileOptions;
 use zip::{DateTime, ZipArchive, ZipWriter};
 
@@ -31,7 +32,6 @@ pub fn zip(src: &Path, dsc: &Path) -> io::Result<()> {
 
     let options = FileOptions::default()
         .compression_level(Some(1))
-        .unix_permissions(0o755)
         .last_modified_time(DateTime::default());
 
     let mut buff = Vec::new();
@@ -44,13 +44,13 @@ pub fn zip(src: &Path, dsc: &Path) -> io::Result<()> {
         let file_path = relation.to_string_lossy();
         let name = file_path.trim_end_matches("/");
         if entry.path_is_symlink() {
-            info!("l {} => {}", path.display(), name);
+            info!("l {}", name);
             zip.add_symlink(name, path.read_link()?.to_string_lossy(), options)?;
         } else if Path::is_dir(entry.path()) {
-            info!("d {} => {}", path.display(), name);
+            info!("d {}", name);
             zip.add_directory(name, options)?;
         } else {
-            info!("f {} => {}", path.display(), name);
+            info!("f {}", name);
             zip.start_file(name, options)?;
             let mut f = File::open(path)?;
             // todo 当读写大文件时,可能会出现内存问题
@@ -77,7 +77,7 @@ pub fn unzip(src: &Path, dsc: &Path) -> io::Result<()> {
     for i in 0..archive.len() {
         let mut file = archive.by_index(i)?;
         let output = match file.enclosed_name() {
-            Some(path) => path.to_owned(),
+            Some(path) => dsc.join(path.to_owned()),
             None => continue,
         };
 
@@ -101,10 +101,11 @@ pub fn unzip(src: &Path, dsc: &Path) -> io::Result<()> {
                     fs::create_dir_all(p)?;
                 }
             }
+
             let mut outfile = File::create(&output)?;
             io::copy(&mut file, &mut outfile)?;
         } else {
-            info!("file {} extracted to \"{}\"", i, output.display());
+            info!("directory {} extracted to \"{}\"", i, output.display());
             fs::create_dir_all(&output)?;
         }
 
@@ -139,4 +140,18 @@ fn walk_dir_test() {
     for entry in entries {
         debug!("entry {:?}", entry);
     }
+}
+
+#[test]
+fn path_test() {
+    use log::debug;
+    use std::env::set_var;
+    set_var("RUST_LOG", "debug");
+    env_logger::init();
+
+    let tmp = tempfile::tempdir().unwrap();
+    let tmp_dir = tmp.path();
+
+    let p = tmp_dir.join("hello");
+    debug!("{}", p.display());
 }
