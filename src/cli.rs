@@ -1,6 +1,5 @@
-use std::path::PathBuf;
-
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -12,21 +11,29 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Zip directory or file to destination
-    Zip {
-        src: PathBuf,
-        dsc: PathBuf,
+    Add {
+        /// the path of the file
+        path: PathBuf,
     },
 
-    /// Unzip file
-    Unzip {
-        src: PathBuf,
-        dsc: PathBuf,
+    Delete {
+        /// package name
+        name: String,
     },
 
-    /// Store files, the current file is divided into small files, compressed and stored
-    Store {},
+    Get {
+        /// name
+        name: String,
+    },
 
-    /// Incrementally synchronize files from the server side
-    Sync {},
+    List {},
+
+    About {},
+
+    Sync {
+        /// the path of the file
+        path: PathBuf,
+    },
+
+    Clear {},
 }
