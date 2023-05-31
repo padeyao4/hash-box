@@ -54,6 +54,7 @@ fn main() -> std::io::Result<()> {
 
 #[test]
 fn test_envs() {
+    use std::path::PathBuf;
     let p = env::var("HBX_PATH");
     let hbx_path: Option<PathBuf> = match p {
         Ok(p) => Some(p.into()),
