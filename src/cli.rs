@@ -14,6 +14,8 @@ pub enum Commands {
     Add {
         /// the path of the file
         path: PathBuf,
+        #[arg(short, long)]
+        force: bool,
     },
 
     Delete {

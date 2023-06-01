@@ -2,51 +2,49 @@ use clap::Parser;
 use log::info;
 use std::env;
 
-use config::HbxConfig;
 use dirs::home_dir;
+use util::HbxConfig;
 
 use crate::cli::{Cli, Commands};
-use crate::config::Handle;
+use crate::util::Handle;
 
 mod cli;
-mod config;
+mod util;
 
 fn main() -> std::io::Result<()> {
     use std::env::set_var;
     set_var("RUST_LOG", "debug");
     env_logger::init();
 
-    let hbx_path_result = env::var(config::HBX_PATH);
-    let hbx_path = match hbx_path_result {
+    let hbx_home_opt = env::var(util::HBX_HOME);
+    let hbx_home = match hbx_home_opt {
         Ok(p) => Some(p.into()),
         Err(_) => home_dir(),
     };
 
-    let hbx_config = HbxConfig::new(hbx_path.unwrap());
+    let hbx = HbxConfig::new(hbx_home.unwrap());
 
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Add { path } => {
-            hbx_config.add(&path);
+        Commands::Add { path, force } => {
+            hbx.add(&path, force);
         }
         Commands::Get { name } => {
-            hbx_config.get(&name);
+            hbx.get(&name);
         }
         Commands::Delete { name } => {
-            hbx_config.delete(&name);
+            hbx.delete(&name);
         }
         Commands::Sync { path } => {
-            hbx_config.sync(&path);
+            hbx.sync(&path);
         }
         Commands::List { .. } => {
-            hbx_config.list();
+            hbx.list();
         }
-        Commands::About { .. } => {
-            info!("version {}", config::VERSION);
-        }
+        Commands::About { .. } => {}
         Commands::Clear { .. } => {
-            hbx_config.clear();
+            hbx.clear();
         }
     }
     Ok(())
@@ -55,7 +53,7 @@ fn main() -> std::io::Result<()> {
 #[test]
 fn test_envs() {
     use std::path::PathBuf;
-    let p = env::var("HBX_PATH");
+    let p = env::var(util::HBX_HOME);
     let hbx_path: Option<PathBuf> = match p {
         Ok(p) => Some(p.into()),
         Err(_) => home_dir(),

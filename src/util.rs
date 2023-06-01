@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 
-pub const VERSION: &str = "0.0.1";
-pub const HBX_PATH: &str = "HBX_PATH";
+pub const HBX_HOME: &str = "HBX_HOME";
 pub const DEFAULT_HBX_PATH: &str = "";
 
 const TEMPLATE_PREFIX: &str = ".hbx_";
@@ -37,7 +36,7 @@ impl HbxConfig {
 }
 
 pub trait Handle {
-    fn add(&self, path: &Path);
+    fn add(&self, path: &Path, d: bool);
 
     fn delete(&self, name: &str);
 
@@ -52,9 +51,29 @@ pub trait Handle {
     fn about(&self) -> String;
 }
 
+enum T {
+    SYMLINK(PathBuf),
+    FILE(String),
+    DIRECTORY,
+}
+
+struct Node {
+    t: T,
+    name: String,
+    children: Vec<Node>,
+}
+
 impl Handle for HbxConfig {
-    fn add(&self, path: &Path) {
-        todo!()
+    fn add(&self, path: &Path, force: bool) {
+        for entry in walkdir::WalkDir::new(path)
+            .follow_links(false)
+            .sort_by_file_name()
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            println!("{:?}", entry);
+            // todo handle file
+        }
     }
 
     fn delete(&self, name: &str) {
@@ -98,5 +117,18 @@ fn walk_dir_test() {
         .filter_map(|f| f.ok());
     for entry in entries {
         debug!("entry {:?}", entry);
+    }
+}
+
+#[test]
+fn walk_file_test() {
+    let p = std::env::current_exe().unwrap();
+    println!("{}", p.display());
+    let entries = walkdir::WalkDir::new(&p)
+        .into_iter()
+        .filter_map(|f| f.ok())
+        .filter(|f| f.path() != &p);
+    for entry in entries {
+        println!("{:?}", entry);
     }
 }
