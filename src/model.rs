@@ -1,15 +1,14 @@
 use fs::{create_dir_all, hard_link, read_to_string};
 use std::collections::HashSet;
-use std::error::Error;
 use std::fs::read_link;
 use std::hash::{Hash, Hasher};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::exit;
 use std::{env, fs};
 
 use anyhow::{anyhow, Result};
 use atomicwrites::{AllowOverwrite, AtomicFile};
+use constant::{CONFIG_NAME, STORE_DIRECTORY};
 use dirs::home_dir;
 use log::{error, info};
 use serde::{Deserialize, Serialize};
@@ -81,10 +80,14 @@ impl Node {
     }
 
     fn recursive_link_and_calc(p: &Path, s: &Path) -> Result<Node> {
-        let name = p.file_name().unwrap().to_string_lossy().to_string();
+        let name = p
+            .file_name()
+            .ok_or(anyhow!("invalidate path"))?
+            .to_string_lossy()
+            .to_string();
 
         let meta = if p.is_symlink() {
-            SYMLINK(p.read_link().unwrap())
+            SYMLINK(p.read_link()?)
         } else if p.is_dir() {
             let mut children = Vec::new();
             for entry in walkdir::WalkDir::new(p)
@@ -117,11 +120,13 @@ pub struct StoreConfig {
 }
 
 impl StoreConfig {
-    fn new(path: PathBuf) -> Self {
-        Self {
+    fn new(path: PathBuf) -> Result<Self> {
+        create_dir_all(path.join(STORE_DIRECTORY))?;
+        let s = Self {
             path,
             data: HashSet::new(),
-        }
+        };
+        Ok(s)
     }
 
     fn default() -> Result<Self> {
@@ -132,21 +137,15 @@ impl StoreConfig {
         };
 
         let path = hbx_home_path.unwrap_or(PathBuf::from("~/.hbx"));
-        create_dir_all(path.join(constant::STORE_DIRECTORY))?;
-
-        let s = Self {
-            path,
-            data: HashSet::new(),
-        };
-        Ok(s)
+        StoreConfig::new(path)
     }
 
     fn config_path(&self) -> PathBuf {
-        self.path.join(Path::new(constant::CONFIG_NAME))
+        self.path.join(Path::new(CONFIG_NAME))
     }
 
     fn store_dir(&self) -> PathBuf {
-        self.path.join(Path::new(constant::STORE_DIRECTORY))
+        self.path.join(Path::new(STORE_DIRECTORY))
     }
 
     /// 加载数据
@@ -188,10 +187,7 @@ impl StoreConfig {
     }
 
     fn delete(&mut self, name: &str) {
-        self.data.remove(&Node {
-            name: name.to_owned(),
-            meta: FILE("".to_string()),
-        });
+        self.data.remove(&Node::sample(name));
     }
 }
 
