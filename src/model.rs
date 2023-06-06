@@ -1,16 +1,23 @@
+use fs::{create_dir_all, hard_link, read_to_string};
 use std::collections::HashSet;
+use std::error::Error;
+use std::fs::read_link;
 use std::hash::{Hash, Hasher};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::exit;
 use std::{env, fs};
 
+use anyhow::{anyhow, Result};
+use atomicwrites::{AllowOverwrite, AtomicFile};
 use dirs::home_dir;
 use log::{error, info};
 use serde::{Deserialize, Serialize};
+use serde_json::{from_str, to_string};
 
 use crate::constant::HBX_HOME_ENV;
-use crate::model::Meta::FILE;
+use crate::model::Meta::{DIRECTORY, FILE, SYMLINK};
+use crate::util::md5;
 use crate::{constant, util};
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -42,31 +49,64 @@ impl Hash for Node {
     }
 }
 
-impl From<&Path> for Node {
-    fn from(value: &Path) -> Self {
-        let name = value.file_name().unwrap().to_string_lossy().to_string();
+impl TryFrom<&Path> for Node {
+    type Error = anyhow::Error;
 
-        let meta;
-        if value.is_symlink() {
-            meta = Meta::SYMLINK(value.read_link().unwrap());
-        } else if value.is_dir() {
+    fn try_from(p: &Path) -> Result<Self, Self::Error> {
+        let name = p
+            .file_name()
+            .ok_or(anyhow!("invalid path"))?
+            .to_string_lossy()
+            .to_string();
+
+        let meta = if p.is_symlink() {
+            SYMLINK(read_link(p)?)
+        } else if p.is_dir() {
+            DIRECTORY(Vec::new())
+        } else {
+            FILE(md5(p))
+        };
+
+        let n = Self { name, meta };
+        Ok(n)
+    }
+}
+
+impl Node {
+    fn sample(s: &str) -> Self {
+        Self {
+            name: s.to_string(),
+            meta: FILE(String::new()),
+        }
+    }
+
+    fn recursive_link_and_calc(p: &Path, s: &Path) -> Result<Node> {
+        let name = p.file_name().unwrap().to_string_lossy().to_string();
+
+        let meta = if p.is_symlink() {
+            SYMLINK(p.read_link().unwrap())
+        } else if p.is_dir() {
             let mut children = Vec::new();
-            for entry in walkdir::WalkDir::new(value)
+            for entry in walkdir::WalkDir::new(p)
                 .follow_links(false)
                 .sort_by_file_name()
                 .max_depth(1)
                 .into_iter()
                 .filter_map(|f| f.ok())
-                .filter(|f| f.path() != value)
+                .filter(|f| f.path() != p)
             {
-                let child = Node::from(entry.path());
+                let child = Node::recursive_link_and_calc(entry.path(), s)?;
                 children.push(child);
             }
-            meta = Meta::DIRECTORY(children);
+            DIRECTORY(children)
         } else {
-            meta = FILE(util::md5(value));
-        }
-        Node { name, meta }
+            let m = util::md5(&p);
+            let dst = s.join(Path::new(&m));
+            info!("l {:?} -> {:?}", &p, &dst);
+            hard_link(&p, &dst)?;
+            FILE(m)
+        };
+        Ok(Node { name, meta })
     }
 }
 
@@ -77,70 +117,66 @@ pub struct StoreConfig {
 }
 
 impl StoreConfig {
-    fn new(path: PathBuf) -> StoreConfig {
+    fn new(path: PathBuf) -> Self {
         Self {
             path,
             data: HashSet::new(),
         }
     }
 
-    fn default() -> StoreConfig {
+    fn default() -> Result<Self> {
         let p = env::var(HBX_HOME_ENV);
         let hbx_home_path: Option<PathBuf> = match p {
             Ok(p) => Some(p.into()),
             Err(_) => home_dir().map(|f| f.join(PathBuf::from(".hbx"))),
         };
-        Self {
-            path: hbx_home_path.unwrap(),
+
+        let path = hbx_home_path.unwrap_or(PathBuf::from("~/.hbx"));
+        create_dir_all(path.join(constant::STORE_DIRECTORY))?;
+
+        let s = Self {
+            path,
             data: HashSet::new(),
-        }
+        };
+        Ok(s)
     }
 
     fn config_path(&self) -> PathBuf {
         self.path.join(Path::new(constant::CONFIG_NAME))
     }
 
-    fn store_path(&self) -> PathBuf {
+    fn store_dir(&self) -> PathBuf {
         self.path.join(Path::new(constant::STORE_DIRECTORY))
     }
 
     /// 加载数据
-    fn load(&mut self) {
+    fn load(&mut self) -> Result<()> {
         let config_path = self.config_path();
-        if !config_path.exists() {
-            return;
+        if config_path.exists() {
+            let content = read_to_string(&config_path)?;
+            let tmp: HashSet<Node> = from_str(&content)?;
+            self.data.extend(tmp);
         }
-        let content = fs::read_to_string(config_path)
-            .expect("Couldn't read config file,maybe it's not a valid config");
-        let tmp: Vec<Node> = serde_json::from_str(&content).expect("it's not a valid json file");
-        for n in tmp.into_iter() {
-            self.data.insert(n);
-        }
+        Ok(())
     }
 
-    fn save(&self) {
-        let config_path = self.config_path();
-
-        if !config_path.exists() {
-            fs::create_dir_all(config_path.parent().unwrap()).expect("Couldn't create config")
-        }
-
-        use atomicwrites::{AllowOverwrite, AtomicFile};
-        let af = AtomicFile::new(self.config_path(), AllowOverwrite);
-        let s = serde_json::to_string(&self.data).unwrap();
-        af.write(|f| f.write_all(s.as_bytes()))
-            .expect("save data failed,some error occur");
+    fn save(&self) -> Result<()> {
+        let s = to_string(&self.data)?;
+        AtomicFile::new(self.config_path(), AllowOverwrite).write(|f| f.write_all(s.as_bytes()))?;
         info!("save path is {}", self.config_path().display());
+        Ok(())
     }
 
-    fn add(&mut self, path: &Path) {
-        if !path.exists() {
-            error!("path not exists, existing");
-            exit(1);
+    fn add(&mut self, path: &Path) -> Result<()> {
+        if path.exists() {
+            if !self.data.contains(&path.try_into()?) {
+                let node = Node::recursive_link_and_calc(path, &self.store_dir())?;
+                self.data.insert(node);
+            }
+        } else {
+            error!("path {:?} not exists, existing", path);
         }
-
-        let node = Node::from(path);
-        self.data.insert(node);
+        Ok(())
     }
 
     fn list(&self) -> Vec<&str> {
@@ -159,30 +195,57 @@ impl StoreConfig {
     }
 }
 
-#[test]
-fn test_model() {
-    env::set_var("RUST_LOG", "debug");
-    env_logger::init();
+#[cfg(test)]
+mod model_test {
+    use std::collections::HashSet;
+    use std::fs::{create_dir_all, remove_dir_all};
+    use std::path::Path;
 
-    let mut config = StoreConfig::default();
-    let path = config.config_path();
-    fs::remove_file(path).unwrap();
-    config.load();
-    config.add(Path::new(".idea"));
-    config.add(Path::new(".idea"));
-    config.add(Path::new(".idea"));
-    config.save();
-    // test loading
-    config.load();
-    config.add(Path::new("src"));
-    info!("size {}", config.data.len());
-    assert_eq!(config.data.len(), 2);
-    // test list
-    let lst = config.list();
-    info!("{:?}", lst);
-    // test delete
-    config.delete("src");
-    let lst = config.list();
-    info!("{:?}", lst);
-    assert_eq!(config.data.len(), 1);
+    use crate::model::StoreConfig;
+
+    #[test]
+    fn test_model() -> anyhow::Result<()> {
+        let mut config = StoreConfig::default()?;
+        config.load()?;
+        config.add(Path::new(".idea"))?;
+        config.add(Path::new(".idea"))?;
+        config.add(Path::new(".idea"))?;
+        assert_eq!(1, config.data.len());
+        config.save()?;
+        // test loading
+        config.load()?;
+        config.add(Path::new("src"))?;
+        assert_eq!(config.data.len(), 2);
+        // test delete
+        config.delete("src");
+        assert_eq!(config.data.len(), 1);
+        remove_dir_all(config.path)?;
+        Ok(())
+    }
+
+    #[test]
+    fn delete_all_dirs_test() -> anyhow::Result<()> {
+        let config = StoreConfig::default()?;
+        remove_dir_all(config.path)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_hash_set_extend() {
+        let ans = [1, 2, 3];
+        let mut set = HashSet::new();
+        set.extend(ans);
+        assert_eq!(set.len(), 3);
+    }
+
+    #[test]
+    fn create_dirs() -> anyhow::Result<()> {
+        let a = Path::new("target/test");
+        create_dir_all(a)?;
+        create_dir_all(a)?;
+        assert!(a.exists());
+        remove_dir_all(a)?;
+        assert!(!a.exists());
+        Ok(())
+    }
 }
