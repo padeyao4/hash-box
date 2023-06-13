@@ -6,11 +6,11 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::{env, fs};
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use atomicwrites::{AllowOverwrite, AtomicFile};
 use constant::{CONFIG_NAME, STORE_DIRECTORY};
 use dirs::home_dir;
-use log::{error, info};
+use log::info;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_str, to_string};
 
@@ -106,7 +106,9 @@ impl Node {
             let m = util::md5(&p);
             let dst = s.join(Path::new(&m));
             info!("l {:?} -> {:?}", &p, &dst);
-            hard_link(&p, &dst)?;
+            if !dst.exists() {
+                hard_link(&p, &dst)?;
+            }
             FILE(m)
         };
         Ok(Node { name, meta })
@@ -129,7 +131,7 @@ impl StoreConfig {
         Ok(s)
     }
 
-    fn default() -> Result<Self> {
+    pub(crate) fn default() -> Result<Self> {
         let p = env::var(HBX_HOME_ENV);
         let hbx_home_path: Option<PathBuf> = match p {
             Ok(p) => Some(p.into()),
@@ -140,16 +142,29 @@ impl StoreConfig {
         StoreConfig::new(path)
     }
 
-    fn config_path(&self) -> PathBuf {
+    pub(crate) fn get(&self, n: &str, path: Option<PathBuf>) -> Result<()> {
+        let p = path.unwrap_or(PathBuf::from("./"));
+        if p.is_file() {
+            bail!("{:?} is a file, please input a directory path", p)
+        }
+        let node = match self.data.get(&Node::sample(n)) {
+            None => bail!("not contain the value {}", n),
+            Some(node) => node,
+        };
+        info!("{:?}", node);
+        Ok(())
+    }
+
+    pub(crate) fn config_path(&self) -> PathBuf {
         self.path.join(Path::new(CONFIG_NAME))
     }
 
-    fn store_dir(&self) -> PathBuf {
+    pub(crate) fn store_dir(&self) -> PathBuf {
         self.path.join(Path::new(STORE_DIRECTORY))
     }
 
     /// 加载数据
-    fn load(&mut self) -> Result<()> {
+    pub(crate) fn load(&mut self) -> Result<()> {
         let config_path = self.config_path();
         if config_path.exists() {
             let content = read_to_string(&config_path)?;
@@ -159,26 +174,24 @@ impl StoreConfig {
         Ok(())
     }
 
-    fn save(&self) -> Result<()> {
+    pub(crate) fn save(&self) -> Result<()> {
         let s = to_string(&self.data)?;
         AtomicFile::new(self.config_path(), AllowOverwrite).write(|f| f.write_all(s.as_bytes()))?;
         info!("save path is {}", self.config_path().display());
         Ok(())
     }
 
-    fn add(&mut self, path: &Path) -> Result<()> {
+    pub(crate) fn add(&mut self, path: &Path) -> Result<()> {
         if path.exists() {
             if !self.data.contains(&path.try_into()?) {
                 let node = Node::recursive_link_and_calc(path, &self.store_dir())?;
                 self.data.insert(node);
             }
-        } else {
-            error!("path {:?} not exists, existing", path);
         }
         Ok(())
     }
 
-    fn list(&self) -> Vec<&str> {
+    pub(crate) fn list(&self) -> Vec<&str> {
         let mut ans = Vec::new();
         for x in &self.data {
             ans.push(x.name.as_str());
@@ -186,8 +199,49 @@ impl StoreConfig {
         ans
     }
 
-    fn delete(&mut self, name: &str) {
+    pub(crate) fn delete(&mut self, name: &str) {
         self.data.remove(&Node::sample(name));
+    }
+
+    pub(crate) fn clear(&self) -> Result<()> {
+        let names = walkdir::WalkDir::new(self.store_dir())
+            .follow_links(false)
+            .into_iter()
+            .filter_map(|f| f.ok())
+            .filter(|p| p.path() != self.store_dir())
+            .map(|p| p.file_name().to_string_lossy().to_string())
+            .collect::<HashSet<String>>();
+        let mut tmp = HashSet::new();
+
+        fn dfs(node: &Node, tmp: &mut HashSet<String>) {
+            match &node.meta {
+                FILE(x) => {
+                    tmp.insert(x.to_owned());
+                }
+                DIRECTORY(nodes) => {
+                    for x in nodes {
+                        dfs(x, tmp);
+                    }
+                }
+                _ => {}
+            };
+        }
+
+        for node in &self.data {
+            dfs(&node, &mut tmp);
+        }
+
+        let res: HashSet<_> = names
+            .difference(&tmp)
+            .map(|name| self.store_dir().join(PathBuf::from(name)))
+            .collect();
+
+        for path in res {
+            info!("delete {:?}", path);
+            fs::remove_file(path)?;
+        }
+
+        Ok(())
     }
 }
 

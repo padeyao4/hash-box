@@ -15,5 +15,6 @@ log = "0.4.17"
 md-5 = "0.10.5"
 serde = { version = "1.0.163", features = ["rc", "derive"] }
 serde_json = "1.0.96"
+ssh2 = "0.9.4"
 tempfile = "3.5.0"
 walkdir = "2.3.3"

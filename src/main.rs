@@ -1,27 +1,47 @@
 use crate::cli::{Cli, Commands};
+use crate::model::StoreConfig;
 use clap::Parser;
+use log::info;
 
 mod cli;
 mod constant;
 mod model;
 mod util;
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     use std::env::set_var;
     set_var("RUST_LOG", "debug");
     env_logger::init();
 
+    let mut config = StoreConfig::default()?;
+    config.load()?;
     let cli = Cli::parse();
-
     match cli.command {
-        Commands::Add { path, force } => {}
-        Commands::Get { name } => {}
-        Commands::Delete { name } => {}
+        Commands::Add { path } => {
+            config.add(&path)?;
+            config.save()?;
+        }
+        Commands::Get { name, path } => {
+            config.get(&name, path)?;
+        }
+        Commands::Delete { name } => {
+            config.delete(&name);
+            config.save()?;
+        }
         Commands::Sync { path } => {}
-        Commands::List { .. } => {}
-        Commands::About { .. } => {}
-        Commands::Clear { .. } => {}
+        Commands::List { .. } => {
+            let ans = config.list();
+            info!("{:?}", ans)
+        }
+        Commands::About { .. } => {
+            info!("config {:?}", config.config_path());
+            info!("storage {:?}", config.store_dir());
+        }
+        Commands::Clear { .. } => {
+            config.clear()?;
+        }
     }
+    Ok(())
 }
 
 #[test]

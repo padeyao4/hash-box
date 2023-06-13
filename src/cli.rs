@@ -14,8 +14,8 @@ pub enum Commands {
     Add {
         /// the path of the file
         path: PathBuf,
-        #[arg(short, long)]
-        force: bool,
+        // #[arg(short, long)]
+        // force: bool,
     },
 
     Delete {
@@ -26,6 +26,8 @@ pub enum Commands {
     Get {
         /// name
         name: String,
+        /// the path to save files
+        path: Option<PathBuf>,
     },
 
     List {},
