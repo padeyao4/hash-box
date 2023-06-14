@@ -20,7 +20,7 @@ use crate::util::md5;
 use crate::{constant, util};
 
 #[derive(Debug, Deserialize, Serialize)]
-enum Meta {
+pub enum Meta {
     FILE(String),
     SYMLINK(PathBuf),
     DIRECTORY(Vec<Node>),
@@ -28,8 +28,8 @@ enum Meta {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Node {
-    name: String,
-    meta: Meta,
+    pub name: String,
+    pub meta: Meta,
 }
 
 impl PartialEq for Node {
@@ -43,7 +43,6 @@ impl Eq for Node {}
 
 impl Hash for Node {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        // 每个元素都有hash方法吗
         self.name.hash(state);
     }
 }
@@ -147,11 +146,68 @@ impl StoreConfig {
         if p.is_file() {
             bail!("{:?} is a file, please input a directory path", p)
         }
-        let node = match self.data.get(&Node::sample(n)) {
+        let root = match self.data.get(&Node::sample(n)) {
             None => bail!("not contain the value {}", n),
             Some(node) => node,
         };
-        info!("{:?}", node);
+
+        fn dfs(
+            node: &Node,
+            parent: &Path,
+            store: &Path,
+            tmp: &mut Vec<(PathBuf, PathBuf)>,
+        ) -> Result<()> {
+            let name = &node.name;
+            let dst = parent.join(PathBuf::from(name));
+
+            match &node.meta {
+                FILE(s) => {
+                    if !&dst.exists() {
+                        let src = store.join(PathBuf::from(s));
+                        info!("f {:?}", &dst);
+                        hard_link(src, &dst)?;
+                    }
+                }
+                SYMLINK(link) => {
+                    #[cfg(windows)]
+                    {
+                        if link.exists() {
+                            info!("l {:?} -> {:?}", dst, link);
+                            if link.is_dir() {
+                                std::os::windows::fs::symlink_dir(dst, link)?;
+                            } else {
+                                std::os::windows::fs::symlink_file(dst, link)?;
+                            }
+                        } else {
+                            tmp.push((dst.into(), link.into()));
+                        }
+                    }
+                    #[cfg(linux)]
+                    {
+                        std::os::unix::fs::symlink(dst, l)?;
+                    }
+                }
+                DIRECTORY(children) => {
+                    info!("d {:?}", dst);
+                    fs::create_dir(&dst)?;
+                    for x in children {
+                        dfs(x, &dst, &store, tmp)?;
+                    }
+                }
+            }
+            Ok(())
+        }
+        let base = &self.store_dir();
+        let mut tmp = Vec::<(PathBuf, PathBuf)>::new();
+        dfs(root, &p, base, &mut tmp)?;
+        for (src, dst) in tmp {
+            info!("l {:?} -> {:?}", src, dst);
+            if dst.is_dir() {
+                std::os::windows::fs::symlink_dir(src, dst)?;
+            } else {
+                std::os::windows::fs::symlink_file(src, dst)?;
+            }
+        }
         Ok(())
     }
 

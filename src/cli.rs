@@ -34,10 +34,5 @@ pub enum Commands {
 
     About {},
 
-    Sync {
-        /// the path of the file
-        path: PathBuf,
-    },
-
     Clear {},
 }

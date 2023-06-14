@@ -28,10 +28,11 @@ fn main() -> anyhow::Result<()> {
             config.delete(&name);
             config.save()?;
         }
-        Commands::Sync { path } => {}
         Commands::List { .. } => {
             let ans = config.list();
-            info!("{:?}", ans)
+            for item in ans {
+                println!("{}", item);
+            }
         }
         Commands::About { .. } => {
             info!("config {:?}", config.config_path());
@@ -47,7 +48,6 @@ fn main() -> anyhow::Result<()> {
 #[test]
 fn test_envs() {
     use dirs::home_dir;
-    use log::info;
     use std::env;
     use std::path::PathBuf;
 
