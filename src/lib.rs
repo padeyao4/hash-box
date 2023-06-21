@@ -1,8 +1,7 @@
-mod core;
+pub mod core;
 
 use crate::core::cli::Commands;
 use clap::Parser;
-use log::info;
 
 pub const HBX_HOME_ENV: &str = "HBX_HOME";
 pub const CONFIG_NAME: &str = "config";
@@ -31,11 +30,14 @@ pub fn run() -> anyhow::Result<()> {
             }
         }
         Commands::About { .. } => {
-            info!("config {:?}", store.config_path());
-            info!("storage {:?}", store.store_dir());
+            println!("config {:?}", store.config_path());
+            println!("storage {:?}", store.store_dir());
         }
         Commands::Clear { .. } => {
             store.clear()?;
+        }
+        Commands::Pull { names, address } => {
+            store.pull(names, address)?;
         }
     }
     Ok(())

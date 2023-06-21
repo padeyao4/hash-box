@@ -39,8 +39,10 @@ impl Store {
         let path = hbx_home_path.unwrap_or(PathBuf::from("~/.hbx"));
         Store::new(path)
     }
+}
 
-    pub(crate) fn get(&self, n: &str, path: Option<PathBuf>) -> anyhow::Result<()> {
+impl Store {
+    pub fn get(&self, n: &str, path: Option<PathBuf>) -> anyhow::Result<()> {
         let p = path.unwrap_or(PathBuf::from("./"));
         if p.is_file() {
             bail!("{:?} is a file, please input a directory path", p)
@@ -110,11 +112,11 @@ impl Store {
         Ok(())
     }
 
-    pub(crate) fn config_path(&self) -> PathBuf {
+    pub fn config_path(&self) -> PathBuf {
         self.path.join(Path::new(CONFIG_NAME))
     }
 
-    pub(crate) fn store_dir(&self) -> PathBuf {
+    pub fn store_dir(&self) -> PathBuf {
         self.path.join(Path::new(STORE_DIRECTORY))
     }
 
@@ -129,14 +131,14 @@ impl Store {
         Ok(())
     }
 
-    pub(crate) fn save(&self) -> anyhow::Result<()> {
+    pub fn save(&self) -> anyhow::Result<()> {
         let s = to_string(&self.data)?;
         AtomicFile::new(self.config_path(), AllowOverwrite).write(|f| f.write_all(s.as_bytes()))?;
         info!("save path is {}", self.config_path().display());
         Ok(())
     }
 
-    pub(crate) fn add(&mut self, path: &Path) -> anyhow::Result<()> {
+    pub fn add(&mut self, path: &Path) -> anyhow::Result<()> {
         if path.exists() {
             if !self.data.contains(&path.try_into()?) {
                 let node = Node::recursive_link_and_calc(path, &self.store_dir())?;
@@ -146,7 +148,7 @@ impl Store {
         Ok(())
     }
 
-    pub(crate) fn list(&self) -> Vec<&str> {
+    pub fn list(&self) -> Vec<&str> {
         let mut ans = Vec::new();
         for x in &self.data {
             ans.push(x.name.as_str());
@@ -154,11 +156,11 @@ impl Store {
         ans
     }
 
-    pub(crate) fn delete(&mut self, name: &str) {
+    pub fn delete(&mut self, name: &str) {
         self.data.remove(&Node::sample(name));
     }
 
-    pub(crate) fn clear(&self) -> anyhow::Result<()> {
+    pub fn clear(&self) -> anyhow::Result<()> {
         let names = walkdir::WalkDir::new(self.store_dir())
             .follow_links(false)
             .into_iter()
@@ -196,6 +198,14 @@ impl Store {
             fs::remove_file(path)?;
         }
 
+        Ok(())
+    }
+}
+
+impl Store {
+    pub fn pull(&self, names: Vec<String>, address: String) -> anyhow::Result<()> {
+        info!("pull tools {:?} from {:?}", names, address);
+        // todo: implement
         Ok(())
     }
 }

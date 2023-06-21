@@ -35,4 +35,11 @@ pub enum Commands {
     About {},
 
     Clear {},
+
+    Pull {
+        /// package name ,split by ' '
+        names: Vec<String>,
+        /// ip or host
+        address: String,
+    },
 }

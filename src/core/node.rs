@@ -50,7 +50,7 @@ impl TryFrom<&Path> for Node {
         } else if p.is_dir() {
             DIRECTORY(Vec::new())
         } else {
-            FILE(md5(p))
+            FILE(md5(p)?)
         };
 
         let n = Self { name, meta };
@@ -59,14 +59,15 @@ impl TryFrom<&Path> for Node {
 }
 
 impl Node {
-    pub(crate) fn sample(s: &str) -> Self {
+    pub fn sample(s: &str) -> Self {
         Self {
             name: s.to_string(),
             meta: FILE(String::new()),
         }
     }
 
-    pub(crate) fn recursive_link_and_calc(p: &Path, s: &Path) -> anyhow::Result<Node> {
+    // todo: 此函数功能太过复杂
+    pub fn recursive_link_and_calc(p: &Path, s: &Path) -> anyhow::Result<Node> {
         let name = p
             .file_name()
             .ok_or(anyhow!("invalidate path"))?
@@ -90,7 +91,7 @@ impl Node {
             }
             DIRECTORY(children)
         } else {
-            let m = md5(&p);
+            let m = md5(&p)?;
             let dst = s.join(Path::new(&m));
             info!("l {:?} -> {:?}", &p, &dst);
             if !dst.exists() {
