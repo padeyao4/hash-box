@@ -39,74 +39,76 @@ impl Store {
         let path = hbx_home_path.unwrap_or(PathBuf::from("~/.hbx"));
         Store::new(path)
     }
-}
 
-impl Store {
-    pub fn get(&self, n: &str, path: Option<PathBuf>) -> anyhow::Result<()> {
-        let p = path.unwrap_or(PathBuf::from("./"));
-        if p.is_file() {
-            bail!("{:?} is a file, please input a directory path", p)
+    pub fn get(&self, name: &str, dst: Option<PathBuf>) -> anyhow::Result<()> {
+        let dst = dst.unwrap_or(PathBuf::from("./"));
+        if !dst.exists() {
+            bail!("{:?} not exits! exit", dst);
         }
-        let root = match self.data.get(&Node::sample(n)) {
-            None => bail!("not contain the value {}", n),
-            Some(node) => node,
+        if dst.is_file() {
+            bail!("{:?} is a file, please input a directory path", dst)
+        }
+        let root = match self.data.get(&Node::sample(name)) {
+            None => {
+                bail!("{} not exists, exit!", name);
+            }
+            Some(n) => n,
         };
+        self.recover(root, &dst.join(&root.name))?;
+        Ok(())
+    }
 
-        fn dfs(
-            node: &Node,
-            parent: &Path,
-            store: &Path,
-            tmp: &mut Vec<(PathBuf, PathBuf)>,
-        ) -> anyhow::Result<()> {
-            let name = &node.name;
-            let dst = parent.join(PathBuf::from(name));
-
-            match &node.meta {
-                FILE(s) => {
-                    if !&dst.exists() {
-                        let src = store.join(PathBuf::from(s));
-                        info!("f {:?}", &dst);
-                        hard_link(src, &dst)?;
-                    }
-                }
-                SYMLINK(link) => {
-                    #[cfg(windows)]
-                    {
-                        if link.exists() {
-                            info!("l {:?} -> {:?}", dst, link);
-                            if link.is_dir() {
-                                std::os::windows::fs::symlink_dir(dst, link)?;
-                            } else {
-                                std::os::windows::fs::symlink_file(dst, link)?;
-                            }
-                        } else {
-                            tmp.push((dst.into(), link.into()));
-                        }
-                    }
-                    #[cfg(linux)]
-                    {
-                        std::os::unix::fs::symlink(dst, l)?;
-                    }
-                }
-                DIRECTORY(children) => {
-                    info!("d {:?}", dst);
-                    fs::create_dir(&dst)?;
-                    for x in children {
-                        dfs(x, &dst, &store, tmp)?;
-                    }
+    // 恢复数据
+    #[cfg(unix)]
+    fn recover(&self, node: &Node, dst: &Path) -> anyhow::Result<()> {
+        match &node.meta {
+            FILE(value) => {
+                let src = self.store_dir().join(Path::new(&value));
+                info!("l {:?} -> {:?}", &src, &dst);
+                hard_link(src, dst)?;
+            }
+            SYMLINK(path) => {
+                std::os::unix::fs::symlink(path, dst)?;
+            }
+            DIRECTORY(vec) => {
+                info!("d {:?}", dst);
+                fs::create_dir(&dst)?;
+                for x in vec.borrow().iter() {
+                    self.recover(x, &dst.join(Path::new(&x.name)))?;
                 }
             }
-            Ok(())
         }
-        let base = &self.store_dir();
-        let mut tmp = Vec::<(PathBuf, PathBuf)>::new();
-        dfs(root, &p, base, &mut tmp)?;
-        for (src, dst) in tmp {
-            info!("l {:?} -> {:?}", src, dst);
-            if dst.is_dir() {
-                std::os::windows::fs::symlink_dir(src, dst)?;
-            } else {
-                std::os::windows::fs::symlink_file(src, dst)?;
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    fn recover_windows(
+        &self,
+        node: &Node,
+        dst: &Path,
+        tmp: &HashMap<PathBuf, PathBuf>,
+    ) -> anyhow::Result<()> {
+        // todo 适配windows
+        match &node.meta {
+            FILE(value) => {
+                let src = self.store_dir().join(Path::new(&value));
+                info!("l {:?} -> {:?}", &src, &dst);
+                hard_link(src, dst)?;
+            }
+            SYMLINK(path) => {
+                info!("l {:?} -> {:?}", dst, link);
+                if link.is_dir() {
+                    std::os::windows::fs::symlink_dir(dst, link)?;
+                } else {
+                    std::os::windows::fs::symlink_file(dst, link)?;
+                }
+            }
+            DIRECTORY(vec) => {
+                info!("d {:?}", dst);
+                fs::create_dir(&dst)?;
+                for x in vec.borrow().iter() {
+                    self.recover(x, &dst.join(Path::new(&x.name)))?;
+                }
             }
         }
         Ok(())
@@ -140,9 +142,54 @@ impl Store {
 
     pub fn add(&mut self, path: &Path) -> anyhow::Result<()> {
         if path.exists() {
-            if !self.data.contains(&path.try_into()?) {
-                let node = Node::recursive_link_and_calc(path, &self.store_dir())?;
-                self.data.insert(node);
+            if !self.data.contains(&Node::try_from(path)?) {
+                let root = self.build(path)?;
+                self.links(&root, path)?;
+                self.data.insert(root);
+            }
+        }
+        Ok(())
+    }
+
+    fn build(&self, path: &Path) -> anyhow::Result<Node> {
+        info!("build {:?}", path);
+        let root = Node::new(path)?;
+        for entry in walkdir::WalkDir::new(path)
+            .follow_links(false)
+            .sort_by_file_name()
+            .max_depth(1)
+            .into_iter()
+            .filter_map(|f| f.ok())
+            .filter(|f| f.path() != path)
+        {
+            let node = if entry.path().is_dir() {
+                self.build(entry.path())?
+            } else {
+                Node::new(entry.path())?
+            };
+
+            match &root.meta {
+                DIRECTORY(vec) => {
+                    vec.borrow_mut().push(node);
+                }
+                _ => {}
+            }
+        }
+        Ok(root)
+    }
+
+    fn links(&self, root: &Node, src: &Path) -> anyhow::Result<()> {
+        match &root.meta {
+            FILE(value) => {
+                let dst = self.store_dir().join(Path::new(value));
+                info!("l {:?} -> {:?}", &src, &dst);
+                hard_link(src, dst)?;
+            }
+            SYMLINK(_) => {}
+            DIRECTORY(vec) => {
+                for node in vec.borrow().iter() {
+                    self.links(node, &src.join(Path::new(&node.name)))?;
+                }
             }
         }
         Ok(())
@@ -176,7 +223,7 @@ impl Store {
                     tmp.insert(x.to_owned());
                 }
                 DIRECTORY(nodes) => {
-                    for x in nodes {
+                    for x in nodes.borrow().iter() {
                         dfs(x, tmp);
                     }
                 }

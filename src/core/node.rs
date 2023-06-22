@@ -1,17 +1,18 @@
 use crate::core::node::Meta::{DIRECTORY, FILE, SYMLINK};
 use crate::core::util::md5;
 use anyhow::anyhow;
-use log::info;
 use serde::{Deserialize, Serialize};
-use std::fs::{hard_link, read_link};
+use std::cell::RefCell;
+use std::fs::read_link;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub enum Meta {
     FILE(String),
     SYMLINK(PathBuf),
-    DIRECTORY(Vec<Node>),
+    DIRECTORY(Rc<RefCell<Vec<Node>>>),
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -48,7 +49,7 @@ impl TryFrom<&Path> for Node {
         let meta = if p.is_symlink() {
             SYMLINK(read_link(p)?)
         } else if p.is_dir() {
-            DIRECTORY(Vec::new())
+            DIRECTORY(Rc::new(RefCell::new(Vec::new())))
         } else {
             FILE(md5(p)?)
         };
@@ -66,38 +67,18 @@ impl Node {
         }
     }
 
-    // todo: 此函数功能太过复杂
-    pub fn recursive_link_and_calc(p: &Path, s: &Path) -> anyhow::Result<Node> {
+    pub fn new(p: &Path) -> anyhow::Result<Node> {
         let name = p
             .file_name()
             .ok_or(anyhow!("invalidate path"))?
             .to_string_lossy()
             .to_string();
-
         let meta = if p.is_symlink() {
             SYMLINK(p.read_link()?)
         } else if p.is_dir() {
-            let mut children = Vec::new();
-            for entry in walkdir::WalkDir::new(p)
-                .follow_links(false)
-                .sort_by_file_name()
-                .max_depth(1)
-                .into_iter()
-                .filter_map(|f| f.ok())
-                .filter(|f| f.path() != p)
-            {
-                let child = Node::recursive_link_and_calc(entry.path(), s)?;
-                children.push(child);
-            }
-            DIRECTORY(children)
+            DIRECTORY(Rc::new(RefCell::new(Vec::new())))
         } else {
-            let m = md5(&p)?;
-            let dst = s.join(Path::new(&m));
-            info!("l {:?} -> {:?}", &p, &dst);
-            if !dst.exists() {
-                hard_link(&p, &dst)?;
-            }
-            FILE(m)
+            FILE(md5(&p)?)
         };
         Ok(Node { name, meta })
     }
