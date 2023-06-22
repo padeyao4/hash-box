@@ -59,7 +59,6 @@ impl Store {
     }
 
     // 恢复数据
-    #[cfg(unix)]
     fn recover(&self, node: &Node, dst: &Path) -> anyhow::Result<()> {
         match &node.meta {
             FILE(value) => {
@@ -69,39 +68,6 @@ impl Store {
             }
             SYMLINK(path) => {
                 std::os::unix::fs::symlink(path, dst)?;
-            }
-            DIRECTORY(vec) => {
-                info!("d {:?}", dst);
-                fs::create_dir(&dst)?;
-                for x in vec.borrow().iter() {
-                    self.recover(x, &dst.join(Path::new(&x.name)))?;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    #[cfg(windows)]
-    fn recover_windows(
-        &self,
-        node: &Node,
-        dst: &Path,
-        tmp: &HashMap<PathBuf, PathBuf>,
-    ) -> anyhow::Result<()> {
-        // todo 适配windows
-        match &node.meta {
-            FILE(value) => {
-                let src = self.store_dir().join(Path::new(&value));
-                info!("l {:?} -> {:?}", &src, &dst);
-                hard_link(src, dst)?;
-            }
-            SYMLINK(path) => {
-                info!("l {:?} -> {:?}", dst, link);
-                if link.is_dir() {
-                    std::os::windows::fs::symlink_dir(dst, link)?;
-                } else {
-                    std::os::windows::fs::symlink_file(dst, link)?;
-                }
             }
             DIRECTORY(vec) => {
                 info!("d {:?}", dst);
@@ -247,9 +213,7 @@ impl Store {
 
         Ok(())
     }
-}
 
-impl Store {
     pub fn pull(&self, names: Vec<String>, address: String) -> anyhow::Result<()> {
         info!("pull tools {:?} from {:?}", names, address);
         // todo: implement
