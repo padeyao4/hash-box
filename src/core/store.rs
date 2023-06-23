@@ -219,4 +219,10 @@ impl Store {
         // todo: implement
         Ok(())
     }
+
+    pub fn push(&self, names: Vec<String>, address: String) -> anyhow::Result<()> {
+        // todo:
+        info!("{:?} {}", names, address);
+        Ok(())
+    }
 }

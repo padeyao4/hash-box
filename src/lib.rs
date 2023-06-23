@@ -39,6 +39,9 @@ pub fn run() -> anyhow::Result<()> {
         Commands::Pull { names, address } => {
             store.pull(names, address)?;
         }
+        Commands::Push { names, address } => {
+            store.push(names, address)?;
+        }
     }
     Ok(())
 }

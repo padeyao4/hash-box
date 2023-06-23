@@ -42,4 +42,11 @@ pub enum Commands {
         /// ip or host
         address: String,
     },
+
+    Push {
+        /// package name ,split by ' '
+        names: Vec<String>,
+        /// ip or host
+        address: String,
+    },
 }
