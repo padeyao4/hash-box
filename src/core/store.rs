@@ -1,13 +1,15 @@
+use crate::core::agent::Agent;
 use crate::core::node::Meta::{DIRECTORY, FILE, SYMLINK};
 use crate::core::node::Node;
+use crate::core::{store, util};
 use crate::{CONFIG_NAME, HBX_HOME_ENV, STORE_DIRECTORY};
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use atomicwrites::{AllowOverwrite, AtomicFile};
 use dirs::home_dir;
 use log::info;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_str, to_string};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::{create_dir_all, hard_link, read_to_string};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -214,15 +216,118 @@ impl Store {
         Ok(())
     }
 
-    pub fn pull(&self, names: Vec<String>, address: String) -> anyhow::Result<()> {
+    pub fn info(&self) -> anyhow::Result<String> {
+        let mut map = HashMap::<String, String>::new();
+        map.insert(
+            "config".into(),
+            self.config_path().to_string_lossy().to_string(),
+        );
+        map.insert(
+            "storage".into(),
+            self.store_dir().to_string_lossy().to_string(),
+        );
+        Ok(to_string(&map)?)
+    }
+
+    pub fn pull(
+        &mut self,
+        names: Vec<String>,
+        address: String,
+        port: Option<i32>,
+    ) -> anyhow::Result<()> {
         info!("pull tools {:?} from {:?}", names, address);
-        // todo: implement
+        let address: Vec<&str> = address.split('@').collect();
+
+        let username = address[0];
+        let net_address = address[1].to_string() + ":" + port.unwrap_or(22).to_string().as_str();
+
+        // 登陆远程服务器
+        let agent = Agent::new()?;
+        agent.login(username, &net_address)?;
+
+        // 判断服务上是否安装hbx命令
+        let res = agent.execute("[ -f /usr/local/hbx ] && echo 0 || echo 1")?;
+
+        // 如果服务器上安装没安装hbx
+        if res.eq("1") {
+            bail!("server not install hbx, exiting")
+        }
+
+        // 读取服务器端配置信息
+        let info = agent.execute("/usr/local/hbx info")?;
+        let map: HashMap<String, String> = from_str(&info)?;
+
+        // 下载配置文件到本地
+        let remote_config = map.get("config").ok_or(anyhow!("config info error"))?;
+        let tmp = tempfile::tempdir()?;
+        let dst_dir = tmp.path();
+        agent.download(dst_dir, &PathBuf::from(remote_config))?;
+
+        // 加载远程配置文件
+        let content = read_to_string(&dst_dir.join(CONFIG_NAME))?;
+        let remote_data: HashSet<Node> = from_str(&content)?;
+
+        // 比对差异文件
+        let s1 = Store::get_files(&self.data);
+        let s2 = Store::get_files(&remote_data);
+        let s3 = s2.difference(&s1).collect::<HashSet<&String>>();
+
+        // 下载差异文件
+        let remote_storage = map.get("storage").ok_or(anyhow!("storage info error"))?;
+        let local_storage = self.store_dir();
+        for item in s3 {
+            let remote = PathBuf::from(remote_storage).join(PathBuf::from(item));
+            let local = local_storage.join(PathBuf::from(item));
+            info!("download {:?} to {:?}", &remote, &local);
+            agent.download(&local, &remote)?;
+        }
+
+        // 合并远程和本地配置
+        self.data.extend(remote_data);
         Ok(())
     }
 
-    pub fn push(&self, names: Vec<String>, address: String) -> anyhow::Result<()> {
+    fn get_files(data: &HashSet<Node>) -> HashSet<String> {
+        let mut ans = HashSet::new();
+        for item in data.iter() {
+            if let FILE(s) = &item.meta {
+                ans.insert(s.to_string());
+            }
+        }
+        ans
+    }
+
+    pub fn push(
+        &self,
+        names: Vec<String>,
+        address: String,
+        port: Option<i32>,
+    ) -> anyhow::Result<()> {
         // todo:
         info!("{:?} {}", names, address);
+        // login remote sshd
+        // check hbx command if exists else upload hbx command and local config
+        // download store info file
+        // check difference local info and remote info
+        // upload difference file
+        let address: Vec<&str> = address.split('@').collect();
+
+        let username = address[0];
+        let net_address = address[1].to_string() + ":" + port.unwrap_or(22).to_string().as_str();
+
+        // 登陆远程服务器
+        let agent = Agent::new()?;
+        agent.login(username, &net_address)?;
+
+        // 判断服务上是否安装hbx命令
+        let res = agent.execute("[ -f /usr/local/hbx ] && echo 0 || echo 1")?;
+
+        // 如果服务器上安装没安装hbx,上传hbx命令到服务器
+        if res.eq("1") {
+            // todo
+            bail!("server not install hbx, exiting")
+        }
+
         Ok(())
     }
 }

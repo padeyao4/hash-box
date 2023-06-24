@@ -29,18 +29,25 @@ pub fn run() -> anyhow::Result<()> {
                 println!("{}", item);
             }
         }
-        Commands::About { .. } => {
-            println!("config {:?}", store.config_path());
-            println!("storage {:?}", store.store_dir());
+        Commands::Info { .. } => {
+            println!("{}", store.info()?);
         }
         Commands::Clear { .. } => {
             store.clear()?;
         }
-        Commands::Pull { names, address } => {
-            store.pull(names, address)?;
+        Commands::Pull {
+            names,
+            address,
+            port,
+        } => {
+            store.pull(names, address, port)?;
         }
-        Commands::Push { names, address } => {
-            store.push(names, address)?;
+        Commands::Push {
+            names,
+            address,
+            port,
+        } => {
+            store.push(names, address, port)?;
         }
     }
     Ok(())

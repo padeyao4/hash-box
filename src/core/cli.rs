@@ -32,21 +32,27 @@ pub enum Commands {
 
     List {},
 
-    About {},
+    Info {},
 
     Clear {},
 
     Pull {
         /// package name ,split by ' '
         names: Vec<String>,
-        /// ip or host
+        /// ip or host , eg. root@127.0.0.1
         address: String,
+        /// server port
+        #[arg(short)]
+        port: Option<i32>,
     },
 
     Push {
         /// package name ,split by ' '
         names: Vec<String>,
-        /// ip or host
+        /// ip or host. eg. root@127.0.0.1
         address: String,
+        /// server port
+        #[arg(short)]
+        port: Option<i32>,
     },
 }

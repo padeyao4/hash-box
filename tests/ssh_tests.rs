@@ -1,5 +1,7 @@
 mod common;
 
+use crate::common::util::logger_init;
+use hbx::core::util::execute;
 use log::debug;
 use ssh2::Session;
 
@@ -8,7 +10,7 @@ use ssh2::Session;
 /// 使用winget install Microsoft.OpenSSH.Beta
 #[test]
 fn test_ssh_session() -> anyhow::Result<()> {
-    common::util::set_log()?;
+    logger_init()?;
     let sess = Session::new()?;
     let mut agent = sess.agent()?;
     agent.connect()?;
@@ -22,9 +24,22 @@ fn test_ssh_session() -> anyhow::Result<()> {
 #[cfg(unix)]
 #[test]
 fn test_execute() -> anyhow::Result<()> {
-    set_log()?;
+    logger_init()?;
     let res = execute("ls /", "root", "127.0.0.1:22")?;
     debug!("{}", res);
     assert!(!res.is_empty());
+    Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn test_execute_error() -> anyhow::Result<()> {
+    logger_init()?;
+    let res = execute(
+        "command -v java &> /dev/null && echo 0 || echo 1",
+        "root",
+        "127.0.0.1:22",
+    )?;
+    debug!("{}", res);
     Ok(())
 }
