@@ -1,7 +1,6 @@
 use crate::core::agent::Agent;
 use crate::core::node::Meta::{DIRECTORY, FILE, SYMLINK};
 use crate::core::node::Node;
-use crate::core::{store, util};
 use crate::{CONFIG_NAME, HBX_HOME_ENV, STORE_DIRECTORY};
 use anyhow::{anyhow, bail};
 use atomicwrites::{AllowOverwrite, AtomicFile};
@@ -97,6 +96,8 @@ impl Store {
             let content = read_to_string(&config_path)?;
             let tmp: HashSet<Node> = from_str(&content)?;
             self.data.extend(tmp);
+        } else {
+            fs::write(config_path, "[]")?;
         }
         Ok(())
     }
@@ -305,11 +306,6 @@ impl Store {
     ) -> anyhow::Result<()> {
         // todo:
         info!("{:?} {}", names, address);
-        // login remote sshd
-        // check hbx command if exists else upload hbx command and local config
-        // download store info file
-        // check difference local info and remote info
-        // upload difference file
         let address: Vec<&str> = address.split('@').collect();
 
         let username = address[0];
@@ -324,10 +320,43 @@ impl Store {
 
         // 如果服务器上安装没安装hbx,上传hbx命令到服务器
         if res.eq("1") {
-            // todo
-            bail!("server not install hbx, exiting")
+            let bin_path = PathBuf::from("/usr/local/hbx");
+            agent.upload(&bin_path, &bin_path)?;
         }
 
+        // 读取服务器端配置信息
+        let info = agent.execute("/usr/local/hbx info")?;
+        let map: HashMap<String, String> = from_str(&info)?;
+
+        // 下载配置文件到本地
+        let remote_config = map.get("config").ok_or(anyhow!("config info error"))?;
+        let tmp = tempfile::tempdir()?;
+        let dst_dir = tmp.path();
+        agent.download(dst_dir, &PathBuf::from(remote_config))?;
+
+        // 加载远程配置文件
+        let content = read_to_string(&dst_dir.join(CONFIG_NAME))?;
+        let mut remote_data: HashSet<Node> = from_str(&content)?;
+
+        // 比对差异文件
+        let local_data = Store::get_files(&self.data);
+        let s2 = Store::get_files(&remote_data);
+        let s3 = local_data.difference(&s2).collect::<HashSet<&String>>();
+
+        // 上传差异文件
+        let remote_storage = map.get("storage").ok_or(anyhow!("storage info error"))?;
+        let local_storage = self.store_dir();
+        for item in s3 {
+            let remote = PathBuf::from(remote_storage).join(PathBuf::from(item));
+            let local = local_storage.join(PathBuf::from(item));
+            info!("upload {:?} to {:?}", &remote, &local);
+            agent.upload(&local, &remote)?;
+        }
+
+        // 合并本地配置到远程
+        remote_data.extend(self.data.clone());
+        let s = to_string(&remote_data)?;
+        agent.write_remote_file(&s, &PathBuf::from(remote_config))?;
         Ok(())
     }
 }

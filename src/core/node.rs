@@ -8,14 +8,14 @@ use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub enum Meta {
     FILE(String),
     SYMLINK(PathBuf),
     DIRECTORY(Rc<RefCell<Vec<Node>>>),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Node {
     pub name: String,
     pub meta: Meta,
