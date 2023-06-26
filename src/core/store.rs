@@ -243,11 +243,11 @@ impl Store {
         let net_address = address[1].to_string() + ":" + port.unwrap_or(22).to_string().as_str();
 
         // 登陆远程服务器
-        let agent = Agent::new()?;
+        let mut agent = Agent::new()?;
         agent.login(username, &net_address)?;
 
         // 判断服务上是否安装hbx命令
-        let res = agent.execute("[ -f /usr/local/hbx ] && echo 0 || echo 1")?;
+        let res = agent.execute("[ -f /usr/local/bin/hbx ] && echo 0 || echo 1")?;
 
         // 如果服务器上安装没安装hbx
         if res.eq("1") {
@@ -255,7 +255,7 @@ impl Store {
         }
 
         // 读取服务器端配置信息
-        let info = agent.execute("/usr/local/hbx info")?;
+        let info = agent.execute("/usr/local/bin/hbx info")?;
         let map: HashMap<String, String> = from_str(&info)?;
 
         // 下载配置文件到本地
@@ -302,36 +302,40 @@ impl Store {
         &self,
         names: Vec<String>,
         address: String,
-        port: Option<i32>,
+        port: Option<String>,
     ) -> anyhow::Result<()> {
-        // todo:
         info!("{:?} {}", names, address);
-        let address: Vec<&str> = address.split('@').collect();
+        let address: Vec<&str> = address.split("@").collect();
 
         let username = address[0];
-        let net_address = address[1].to_string() + ":" + port.unwrap_or(22).to_string().as_str();
+        let host = address[1].to_string() + ":" + port.unwrap_or("22".into()).as_str();
+        info!("username : {}, host: {}", username, host);
 
         // 登陆远程服务器
-        let agent = Agent::new()?;
-        agent.login(username, &net_address)?;
+        let mut agent = Agent::new()?;
+        info!("login");
+        agent.login(username, &host)?;
 
+        info!("check hbx if exists");
         // 判断服务上是否安装hbx命令
-        let res = agent.execute("[ -f /usr/local/hbx ] && echo 0 || echo 1")?;
+        let res = agent.execute("[ -f /usr/local/bin/hbx ] && echo ok || echo fail")?;
 
         // 如果服务器上安装没安装hbx,上传hbx命令到服务器
-        if res.eq("1") {
-            let bin_path = PathBuf::from("/usr/local/hbx");
+        if res.trim().eq("fail") {
+            info!("server not install hbx, upload hbx to server");
+            let bin_path = PathBuf::from("/usr/local/bin/hbx");
             agent.upload(&bin_path, &bin_path)?;
         }
 
         // 读取服务器端配置信息
-        let info = agent.execute("/usr/local/hbx info")?;
+        let info = agent.execute("/usr/local/bin/hbx info")?;
         let map: HashMap<String, String> = from_str(&info)?;
 
         // 下载配置文件到本地
         let remote_config = map.get("config").ok_or(anyhow!("config info error"))?;
         let tmp = tempfile::tempdir()?;
         let dst_dir = tmp.path();
+        info!("download config from server");
         agent.download(dst_dir, &PathBuf::from(remote_config))?;
 
         // 加载远程配置文件

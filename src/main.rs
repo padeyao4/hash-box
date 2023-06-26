@@ -13,7 +13,7 @@ fn main() {
     builder.init();
 
     if let Err(e) = run() {
-        info!("An error occurred at runtime {}", e);
+        info!("An error occurred at runtime:\n{}", e);
         process::exit(1);
     }
 }

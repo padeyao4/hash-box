@@ -53,6 +53,6 @@ pub enum Commands {
         address: String,
         /// server port
         #[arg(short)]
-        port: Option<i32>,
+        port: Option<String>,
     },
 }

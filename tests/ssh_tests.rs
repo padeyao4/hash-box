@@ -1,6 +1,7 @@
 mod common;
 
-use crate::common::util::logger_init;
+use crate::common::util::test_env_init;
+use hbx::core::agent::Agent;
 use hbx::core::util::execute;
 use log::debug;
 use ssh2::Session;
@@ -10,7 +11,7 @@ use ssh2::Session;
 /// 使用winget install Microsoft.OpenSSH.Beta
 #[test]
 fn test_ssh_session() -> anyhow::Result<()> {
-    logger_init()?;
+    test_env_init()?;
     let sess = Session::new()?;
     let mut agent = sess.agent()?;
     agent.connect()?;
@@ -24,8 +25,12 @@ fn test_ssh_session() -> anyhow::Result<()> {
 #[cfg(unix)]
 #[test]
 fn test_execute() -> anyhow::Result<()> {
-    logger_init()?;
-    let res = execute("ls /", "root", "127.0.0.1:22")?;
+    test_env_init()?;
+    let res = execute(
+        "ls /",
+        &std::env::var("TEST_USER")?,
+        &std::env::var("TEST_HOST")?,
+    )?;
     debug!("{}", res);
     assert!(!res.is_empty());
     Ok(())
@@ -34,12 +39,25 @@ fn test_execute() -> anyhow::Result<()> {
 #[cfg(unix)]
 #[test]
 fn test_execute_error() -> anyhow::Result<()> {
-    logger_init()?;
+    test_env_init()?;
     let res = execute(
         "command -v java &> /dev/null && echo 0 || echo 1",
         "root",
         "127.0.0.1:22",
     )?;
+    debug!("{}", res);
+    Ok(())
+}
+
+#[test]
+fn test_ssh_login() -> anyhow::Result<()> {
+    test_env_init()?;
+    let mut agent = Agent::new()?;
+    let username = &std::env::var("TEST_USER")?;
+    let host = &std::env::var("TEST_HOST")?;
+    debug!("username: {}, host: {}", username, host);
+    agent.login(username, host)?;
+    let res = agent.execute("[ -f /usr/local/hbx ] && echo 0 || echo 1")?;
     debug!("{}", res);
     Ok(())
 }

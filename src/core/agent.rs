@@ -17,16 +17,16 @@ impl Agent {
         })
     }
 
-    pub fn login(&self, username: &str, address: &str) -> anyhow::Result<()> {
-        let tcp = TcpStream::connect(address)?;
-        let mut sess = Session::new()?;
-        sess.set_tcp_stream(tcp);
-        sess.handshake()?;
-        sess.userauth_agent(username)?;
-        sess.agent()?;
-        if !sess.authenticated() {
+    pub fn login(&mut self, username: &str, host: &str) -> anyhow::Result<()> {
+        info!("tcp connect...");
+        let tcp = TcpStream::connect(host)?;
+        self.session.set_tcp_stream(tcp);
+        self.session.handshake()?;
+        self.session.userauth_agent(username)?;
+        if !self.session.authenticated() {
             bail!("authentication failed");
         }
+        info!("authenticated success");
         Ok(())
     }
 
@@ -48,7 +48,7 @@ impl Agent {
 
     pub fn upload(&self, local_path: &Path, remote_path: &Path) -> anyhow::Result<()> {
         let size = local_path.metadata()?.len();
-        let mut remote_file = self.session.scp_send(remote_path, 0o644, size, None)?;
+        let mut remote_file = self.session.scp_send(remote_path, 0o755, size, None)?;
         remote_file.write(&fs::read(local_path)?)?;
         // Close the channel and wait for the whole content to be transferred
         remote_file.send_eof()?;
