@@ -54,5 +54,8 @@ pub enum Commands {
         /// server port
         #[arg(short)]
         port: Option<String>,
+        /// if server not install hbx then install hbx
+        #[arg(short)]
+        force: bool,
     },
 }

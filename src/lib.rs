@@ -46,8 +46,9 @@ pub fn run() -> anyhow::Result<()> {
             names,
             address,
             port,
+            force,
         } => {
-            store.push(names, address, port)?;
+            store.push(names, address, port, force)?;
         }
     }
     Ok(())

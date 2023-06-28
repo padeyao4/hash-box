@@ -24,4 +24,4 @@ hbx --help
 
 ## License
 
-MIT
+Apache-2.0

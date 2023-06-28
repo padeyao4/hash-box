@@ -303,6 +303,7 @@ impl Store {
         names: Vec<String>,
         address: String,
         port: Option<String>,
+        force: bool,
     ) -> anyhow::Result<()> {
         info!("{:?} {}", names, address);
         let address: Vec<&str> = address.split("@").collect();
@@ -322,9 +323,13 @@ impl Store {
 
         // 如果服务器上安装没安装hbx,上传hbx命令到服务器
         if res.trim().eq("fail") {
-            info!("server not install hbx, upload hbx to server");
-            let bin_path = PathBuf::from("/usr/local/bin/hbx");
-            agent.upload(&bin_path, &bin_path)?;
+            if force {
+                info!("server not install hbx, upload hbx to server");
+                let bin_path = PathBuf::from("/usr/local/bin/hbx");
+                agent.upload(&bin_path, &bin_path)?;
+            } else {
+                bail!("remote server not install hbx!!!");
+            }
         }
 
         // 读取服务器端配置信息
