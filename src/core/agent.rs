@@ -31,7 +31,7 @@ impl Agent {
     }
 
     pub fn download(&self, local_path: &Path, remote_path: &Path) -> anyhow::Result<()> {
-        let (mut remote_file, stat) = self.session.scp_recv(local_path)?;
+        let (mut remote_file, stat) = self.session.scp_recv(remote_path)?;
         info!("remote file size: {}", stat.size());
         let mut contents = Vec::new();
         remote_file.read_to_end(&mut contents)?;
@@ -41,20 +41,27 @@ impl Agent {
         remote_file.wait_eof()?;
         remote_file.close()?;
         remote_file.wait_close()?;
-
-        fs::write(remote_path, contents)?;
+        info!("content: {:?}", &contents);
+        fs::write(local_path, contents)?;
         Ok(())
     }
 
-    pub fn upload(&self, local_path: &Path, remote_path: &Path) -> anyhow::Result<()> {
+    pub fn upload(&self, local_path: &Path, remote_file: &Path) -> anyhow::Result<()> {
         let size = local_path.metadata()?.len();
-        let mut remote_file = self.session.scp_send(remote_path, 0o755, size, None)?;
-        remote_file.write(&fs::read(local_path)?)?;
+        info!("size {}", size);
+        let mut channel = self.session.scp_send(remote_file, 0o755, size, None)?;
+        info!("scp send");
+        channel.write(&fs::read(local_path)?)?;
+        info!("write file ok");
         // Close the channel and wait for the whole content to be transferred
-        remote_file.send_eof()?;
-        remote_file.wait_eof()?;
-        remote_file.close()?;
-        remote_file.wait_close()?;
+        channel.send_eof()?;
+        info!("send file ok");
+        channel.wait_eof()?;
+        info!("wait end of file");
+        channel.close()?;
+        info!("close file");
+        channel.wait_close()?;
+        info!("closed ok");
         Ok(())
     }
 

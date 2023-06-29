@@ -50,6 +50,9 @@ pub fn run() -> anyhow::Result<()> {
         } => {
             store.push(names, address, port, force)?;
         }
+        Commands::Test { .. } => {
+            store.test();
+        }
     }
     Ok(())
 }

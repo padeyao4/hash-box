@@ -23,6 +23,10 @@ pub struct Store {
 impl Store {
     pub fn new(path: PathBuf) -> anyhow::Result<Self> {
         create_dir_all(path.join(STORE_DIRECTORY))?;
+        let config_path = path.join(CONFIG_NAME);
+        if !config_path.exists() {
+            fs::write(config_path, "[]")?;
+        }
         let s = Self {
             path,
             data: HashSet::new(),
@@ -248,7 +252,7 @@ impl Store {
 
         // 判断服务上是否安装hbx命令
         let res = agent.execute("[ -f /usr/local/bin/hbx ] && echo 0 || echo 1")?;
-
+        let res = res.trim();
         // 如果服务器上安装没安装hbx
         if res.eq("1") {
             bail!("server not install hbx, exiting")
@@ -256,6 +260,7 @@ impl Store {
 
         // 读取服务器端配置信息
         let info = agent.execute("/usr/local/bin/hbx info")?;
+        let info = info.trim();
         let map: HashMap<String, String> = from_str(&info)?;
 
         // 下载配置文件到本地
@@ -266,11 +271,12 @@ impl Store {
 
         // 加载远程配置文件
         let content = read_to_string(&dst_dir.join(CONFIG_NAME))?;
+        info!("content: {}", content);
         let remote_data: HashSet<Node> = from_str(&content)?;
 
         // 比对差异文件
-        let s1 = Store::get_files(&self.data);
-        let s2 = Store::get_files(&remote_data);
+        let s1 = Store::get_files(&mut self.data.iter());
+        let s2 = Store::get_files(&mut remote_data.iter());
         let s3 = s2.difference(&s1).collect::<HashSet<&String>>();
 
         // 下载差异文件
@@ -288,11 +294,15 @@ impl Store {
         Ok(())
     }
 
-    fn get_files(data: &HashSet<Node>) -> HashSet<String> {
+    fn get_files(data: &mut dyn Iterator<Item = &Node>) -> HashSet<String> {
         let mut ans = HashSet::new();
-        for item in data.iter() {
+        for item in data {
             if let FILE(s) = &item.meta {
+                info!("{}", s);
                 ans.insert(s.to_string());
+            }
+            if let DIRECTORY(children) = &item.meta {
+                ans.extend(Store::get_files(&mut children.borrow().iter()));
             }
         }
         ans
@@ -319,38 +329,51 @@ impl Store {
 
         info!("check hbx if exists");
         // 判断服务上是否安装hbx命令
-        let res = agent.execute("[ -f /usr/local/bin/hbx ] && echo ok || echo fail")?;
-
+        // 考虑2种情况
+        // 安装在固定目录，安装在其他目录
+        // todo
+        let res = agent
+            .execute("source /etc/profile; [ command -v hbx &> /dev/null ] && echo 0 || echo 1")?;
+        let res = res.trim();
+        info!("remote response: {}", res);
         // 如果服务器上安装没安装hbx,上传hbx命令到服务器
-        if res.trim().eq("fail") {
+        if res.eq("1") {
             if force {
                 info!("server not install hbx, upload hbx to server");
-                let bin_path = PathBuf::from("/usr/local/bin/hbx");
-                agent.upload(&bin_path, &bin_path)?;
+                agent.upload(&env::current_exe()?, &PathBuf::from("/usr/local/bin/hbx"))?;
             } else {
                 bail!("remote server not install hbx!!!");
             }
         }
 
         // 读取服务器端配置信息
-        let info = agent.execute("/usr/local/bin/hbx info")?;
+        let info = agent.execute("hbx info")?;
+        let info = info.trim();
+        info!("remote info: {}", info);
         let map: HashMap<String, String> = from_str(&info)?;
 
         // 下载配置文件到本地
         let remote_config = map.get("config").ok_or(anyhow!("config info error"))?;
+        info!("remote config path: {}", remote_config);
         let tmp = tempfile::tempdir()?;
-        let dst_dir = tmp.path();
+        let dst_file = tmp.path().join(CONFIG_NAME);
         info!("download config from server");
-        agent.download(dst_dir, &PathBuf::from(remote_config))?;
+        let remote_path = PathBuf::from(remote_config);
+        info!("remote config path: {:?}", &remote_path);
+        info!("local template path: {:?}", dst_file);
+        agent.download(&dst_file, &remote_path)?;
 
         // 加载远程配置文件
-        let content = read_to_string(&dst_dir.join(CONFIG_NAME))?;
+        let content = read_to_string(&dst_file)?;
         let mut remote_data: HashSet<Node> = from_str(&content)?;
 
         // 比对差异文件
-        let local_data = Store::get_files(&self.data);
-        let s2 = Store::get_files(&remote_data);
+        let local_data = Store::get_files(&mut self.data.iter());
+        info!("local data: {:?}", local_data);
+        let s2 = Store::get_files(&mut remote_data.iter());
+        info!("remote data: {:?}", s2);
         let s3 = local_data.difference(&s2).collect::<HashSet<&String>>();
+        info!("diff: {:?}", s3);
 
         // 上传差异文件
         let remote_storage = map.get("storage").ok_or(anyhow!("storage info error"))?;
@@ -366,6 +389,9 @@ impl Store {
         remote_data.extend(self.data.clone());
         let s = to_string(&remote_data)?;
         agent.write_remote_file(&s, &PathBuf::from(remote_config))?;
+
         Ok(())
     }
+
+    pub fn test(&self) {}
 }

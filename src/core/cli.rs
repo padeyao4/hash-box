@@ -58,4 +58,5 @@ pub enum Commands {
         #[arg(short)]
         force: bool,
     },
+    Test {},
 }

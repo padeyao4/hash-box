@@ -18,5 +18,7 @@ fn test_str_eq() -> anyhow::Result<()> {
     let s1 = String::from("hello");
     let s2 = "hello";
     assert!(s1.eq(s2));
+    let s3 = "hello";
+    assert!(s2.eq(s3));
     Ok(())
 }
