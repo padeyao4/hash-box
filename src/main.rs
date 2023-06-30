@@ -1,7 +1,8 @@
-use log::info;
 use std::env::set_var;
 use std::io::Write;
 use std::process;
+
+use log::info;
 
 use hbx::run;
 

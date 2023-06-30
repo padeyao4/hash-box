@@ -1,5 +1,6 @@
-use clap::{Parser, Subcommand};
 use std::path::PathBuf;
+
+use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -37,20 +38,20 @@ pub enum Commands {
     Clear {},
 
     Pull {
-        /// package name ,split by ' '
-        names: Vec<String>,
         /// ip or host , eg. root@127.0.0.1
         address: String,
+        /// package name ,split by ' '
+        names: Vec<String>,
         /// server port
         #[arg(short)]
         port: Option<i32>,
     },
 
     Push {
-        /// package name ,split by ' '
-        names: Vec<String>,
         /// ip or host. eg. root@127.0.0.1
         address: String,
+        /// package name ,split by ' '
+        names: Vec<String>,
         /// server port
         #[arg(short)]
         port: Option<String>,

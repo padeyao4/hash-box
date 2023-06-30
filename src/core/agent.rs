@@ -1,10 +1,11 @@
-use anyhow::bail;
-use log::info;
-use ssh2::Session;
 use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::Path;
+
+use anyhow::bail;
+use log::info;
+use ssh2::Session;
 
 pub struct Agent {
     session: Session,
