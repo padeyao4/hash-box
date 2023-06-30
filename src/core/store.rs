@@ -1,18 +1,20 @@
-use crate::core::agent::Agent;
-use crate::core::node::Meta::{DIRECTORY, FILE, SYMLINK};
-use crate::core::node::Node;
-use crate::{CONFIG_NAME, HBX_HOME_ENV, STORE_DIRECTORY};
+use std::collections::{HashMap, HashSet};
+use std::fs::{create_dir_all, hard_link, read_to_string};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::{env, fs};
+
 use anyhow::{anyhow, bail};
 use atomicwrites::{AllowOverwrite, AtomicFile};
 use dirs::home_dir;
 use log::info;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_str, to_string};
-use std::collections::{HashMap, HashSet};
-use std::fs::{create_dir_all, hard_link, read_to_string};
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::{env, fs};
+
+use crate::core::agent::Agent;
+use crate::core::node::Meta::{DIRECTORY, FILE, SYMLINK};
+use crate::core::node::Node;
+use crate::{CONFIG_NAME, HBX_HOME_ENV, STORE_DIRECTORY};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Store {
@@ -332,8 +334,7 @@ impl Store {
         // 考虑2种情况
         // 安装在固定目录，安装在其他目录
         // todo
-        let res = agent
-            .execute("source /etc/profile; [ command -v hbx &> /dev/null ] && echo 0 || echo 1")?;
+        let res = agent.execute("[ command -v hbx &> /dev/null ] && echo 0 || echo 1")?;
         let res = res.trim();
         info!("remote response: {}", res);
         // 如果服务器上安装没安装hbx,上传hbx命令到服务器
