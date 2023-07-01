@@ -1,5 +1,6 @@
-use clap::{Parser, Subcommand};
 use std::path::PathBuf;
+
+use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -32,14 +33,29 @@ pub enum Commands {
 
     List {},
 
-    About {},
+    Info {},
 
     Clear {},
 
     Pull {
-        /// package name ,split by ' '
-        names: Vec<String>,
-        /// ip or host
+        /// ip or host , eg. root@127.0.0.1
         address: String,
+        /// package name ,split by ' '
+        // names: Vec<String>,
+        /// server port
+        #[arg(short)]
+        port: Option<String>,
     },
+
+    Push {
+        /// ip or host. eg. root@127.0.0.1
+        address: String,
+        /// server port
+        #[arg(short)]
+        port: Option<String>,
+        /// if server not install hbx then install hbx
+        #[arg(short)]
+        force: bool,
+    },
+    Test {},
 }

@@ -1,21 +1,23 @@
-use crate::core::node::Meta::{DIRECTORY, FILE, SYMLINK};
-use crate::core::util::md5;
-use anyhow::anyhow;
-use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::fs::read_link;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-#[derive(Debug, Deserialize, Serialize)]
+use anyhow::anyhow;
+use serde::{Deserialize, Serialize};
+
+use crate::core::node::Meta::{DIRECTORY, FILE, SYMLINK};
+use crate::core::util::md5;
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub enum Meta {
     FILE(String),
     SYMLINK(PathBuf),
     DIRECTORY(Rc<RefCell<Vec<Node>>>),
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Node {
     pub name: String,
     pub meta: Meta,

@@ -1,10 +1,9 @@
-use anyhow::bail;
-use log::info;
 use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::Path;
 
+use anyhow::bail;
 use md5::Digest;
 use ssh2::Session;
 
@@ -25,8 +24,7 @@ pub fn download(
 ) -> anyhow::Result<()> {
     let sess = ssh_session(username, address)?;
 
-    let (mut remote_file, stat) = sess.scp_recv(local_path)?;
-    info!("remote file size: {}", stat.size());
+    let (mut remote_file, _stat) = sess.scp_recv(local_path)?;
     let mut contents = Vec::new();
     remote_file.read_to_end(&mut contents)?;
 

@@ -1,20 +1,29 @@
 [package]
 name = "hbx"
-version = "0.1.1"
+version = "0.1.2"
+authors = ["guojian_k@qq.com"]
+license = "Apache-2.0"
+description = "Incremental sync tool"
 edition = "2021"
+readme = "README.md"
+homepage = "https://github.com/padeyao4/hash-box"
+repository = "https://github.com/padeyao4/hash-box"
+keywords = ["cli", "sync", "scp"]
+categories = ["command-line-utilities"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 anyhow = "1.0.71"
 atomicwrites = "0.4.1"
-clap = { version = "4.2.7", features = ["derive"] }
+clap = { version = "4.3.8", features = ["derive"] }
 dirs = "5.0.1"
+dotenv = "0.15.0"
 env_logger = "0.10.0"
 log = "0.4.17"
 md-5 = "0.10.5"
 serde = { version = "1.0.163", features = ["rc", "derive"] }
 serde_json = "1.0.96"
-ssh2 = "0.9.4"
+ssh2 = { version = "0.9.4", features = ["vendored-openssl"] }
 tempfile = "3.5.0"
 walkdir = "2.3.3"

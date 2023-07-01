@@ -1,7 +1,8 @@
-pub mod core;
+use clap::Parser;
 
 use crate::core::cli::Commands;
-use clap::Parser;
+
+pub mod core;
 
 pub const HBX_HOME_ENV: &str = "HBX_HOME";
 pub const CONFIG_NAME: &str = "config";
@@ -14,30 +15,40 @@ pub fn run() -> anyhow::Result<()> {
     match cli.command {
         Commands::Add { path } => {
             store.add(&path)?;
-            store.save()?;
         }
         Commands::Get { name, path } => {
             store.get(&name, path)?;
         }
         Commands::Delete { name } => {
-            store.delete(&name);
-            store.save()?;
+            store.delete(&name)?;
         }
         Commands::List { .. } => {
-            let ans = store.list();
-            for item in ans {
+            for item in store.list() {
                 println!("{}", item);
             }
         }
-        Commands::About { .. } => {
-            println!("config {:?}", store.config_path());
-            println!("storage {:?}", store.store_dir());
+        Commands::Info { .. } => {
+            println!("{}", store.info()?);
         }
         Commands::Clear { .. } => {
             store.clear()?;
         }
-        Commands::Pull { names, address } => {
-            store.pull(names, address)?;
+        Commands::Pull {
+            address,
+            // names,
+            port,
+        } => {
+            store.pull(address, port)?;
+        }
+        Commands::Push {
+            address,
+            port,
+            force,
+        } => {
+            store.push(address, port, force)?;
+        }
+        Commands::Test { .. } => {
+            store.test();
         }
     }
     Ok(())

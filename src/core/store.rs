@@ -1,17 +1,20 @@
-use crate::core::node::Meta::{DIRECTORY, FILE, SYMLINK};
-use crate::core::node::Node;
-use crate::{CONFIG_NAME, HBX_HOME_ENV, STORE_DIRECTORY};
-use anyhow::bail;
+use std::collections::{HashMap, HashSet};
+use std::fs::{create_dir_all, hard_link, read_to_string};
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::{env, fs};
+
+use anyhow::{anyhow, bail};
 use atomicwrites::{AllowOverwrite, AtomicFile};
 use dirs::home_dir;
 use log::info;
 use serde::{Deserialize, Serialize};
 use serde_json::{from_str, to_string};
-use std::collections::HashSet;
-use std::fs::{create_dir_all, hard_link, read_to_string};
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::{env, fs};
+
+use crate::core::agent::Agent;
+use crate::core::node::Meta::{DIRECTORY, FILE, SYMLINK};
+use crate::core::node::Node;
+use crate::{CONFIG_NAME, HBX_HOME_ENV, STORE_DIRECTORY};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Store {
@@ -22,6 +25,10 @@ pub struct Store {
 impl Store {
     pub fn new(path: PathBuf) -> anyhow::Result<Self> {
         create_dir_all(path.join(STORE_DIRECTORY))?;
+        let config_path = path.join(CONFIG_NAME);
+        if !config_path.exists() {
+            fs::write(config_path, "[]")?;
+        }
         let s = Self {
             path,
             data: HashSet::new(),
@@ -59,7 +66,6 @@ impl Store {
     }
 
     // 恢复数据
-    #[cfg(unix)]
     fn recover(&self, node: &Node, dst: &Path) -> anyhow::Result<()> {
         match &node.meta {
             FILE(value) => {
@@ -69,39 +75,6 @@ impl Store {
             }
             SYMLINK(path) => {
                 std::os::unix::fs::symlink(path, dst)?;
-            }
-            DIRECTORY(vec) => {
-                info!("d {:?}", dst);
-                fs::create_dir(&dst)?;
-                for x in vec.borrow().iter() {
-                    self.recover(x, &dst.join(Path::new(&x.name)))?;
-                }
-            }
-        }
-        Ok(())
-    }
-
-    #[cfg(windows)]
-    fn recover_windows(
-        &self,
-        node: &Node,
-        dst: &Path,
-        tmp: &HashMap<PathBuf, PathBuf>,
-    ) -> anyhow::Result<()> {
-        // todo 适配windows
-        match &node.meta {
-            FILE(value) => {
-                let src = self.store_dir().join(Path::new(&value));
-                info!("l {:?} -> {:?}", &src, &dst);
-                hard_link(src, dst)?;
-            }
-            SYMLINK(path) => {
-                info!("l {:?} -> {:?}", dst, link);
-                if link.is_dir() {
-                    std::os::windows::fs::symlink_dir(dst, link)?;
-                } else {
-                    std::os::windows::fs::symlink_file(dst, link)?;
-                }
             }
             DIRECTORY(vec) => {
                 info!("d {:?}", dst);
@@ -129,11 +102,13 @@ impl Store {
             let content = read_to_string(&config_path)?;
             let tmp: HashSet<Node> = from_str(&content)?;
             self.data.extend(tmp);
+        } else {
+            fs::write(config_path, "[]")?;
         }
         Ok(())
     }
 
-    pub fn save(&self) -> anyhow::Result<()> {
+    fn save(&self) -> anyhow::Result<()> {
         let s = to_string(&self.data)?;
         AtomicFile::new(self.config_path(), AllowOverwrite).write(|f| f.write_all(s.as_bytes()))?;
         info!("save path is {}", self.config_path().display());
@@ -146,6 +121,7 @@ impl Store {
                 let root = self.build(path)?;
                 self.links(&root, path)?;
                 self.data.insert(root);
+                self.save()?;
             }
         }
         Ok(())
@@ -203,8 +179,10 @@ impl Store {
         ans
     }
 
-    pub fn delete(&mut self, name: &str) {
+    pub fn delete(&mut self, name: &str) -> anyhow::Result<()> {
         self.data.remove(&Node::sample(name));
+        self.save()?;
+        Ok(())
     }
 
     pub fn clear(&self) -> anyhow::Result<()> {
@@ -244,15 +222,150 @@ impl Store {
             info!("delete {:?}", path);
             fs::remove_file(path)?;
         }
-
         Ok(())
     }
-}
 
-impl Store {
-    pub fn pull(&self, names: Vec<String>, address: String) -> anyhow::Result<()> {
-        info!("pull tools {:?} from {:?}", names, address);
-        // todo: implement
+    pub fn info(&self) -> anyhow::Result<String> {
+        let mut map = HashMap::<String, String>::new();
+        map.insert(
+            "config".into(),
+            self.config_path().to_string_lossy().to_string(),
+        );
+        map.insert(
+            "storage".into(),
+            self.store_dir().to_string_lossy().to_string(),
+        );
+        Ok(to_string(&map)?)
+    }
+
+    pub fn pull(&mut self, address: String, port: Option<String>) -> anyhow::Result<()> {
+        let agent = Self::login_server(address, port)?;
+
+        if !Self::remote_has_hbx(&agent)? {
+            bail!("server not install hbx");
+        }
+
+        // 读取服务器端配置信息
+        let map = Self::remote_hbx_info(&agent)?;
+        let remote_config = map.get("config").ok_or(anyhow!("config info error"))?;
+        let remote_storage = map.get("storage").ok_or(anyhow!("storage info error"))?;
+
+        // 下载配置文件到本地
+        let tmp = tempfile::tempdir()?;
+        let dst_file = tmp.path().join(CONFIG_NAME);
+        agent.download(&dst_file, &PathBuf::from(remote_config))?;
+
+        // 加载远程配置文件
+        let remote_data: HashSet<Node> = from_str(&read_to_string(&dst_file)?)?;
+
+        // 比对差异文件
+        let local_set = Store::get_files(&mut self.data.iter());
+        let remote_set = Store::get_files(&mut remote_data.iter());
+        let diff = remote_set
+            .difference(&local_set)
+            .collect::<HashSet<&String>>();
+
+        // 下载差异文件
+        for item in diff {
+            let remote = PathBuf::from(remote_storage).join(PathBuf::from(item));
+            let local = self.store_dir().join(PathBuf::from(item));
+            if !&local.exists() {
+                agent.download(&local, &remote)?;
+            }
+        }
+
+        // 合并远程和本地配置
+        self.data.extend(remote_data);
+
+        self.save()?;
         Ok(())
     }
+
+    fn remote_has_hbx(agent: &Agent) -> anyhow::Result<bool> {
+        // 判断服务上是否安装hbx命令
+        let res = agent.execute("[ -f /usr/local/bin/hbx ] && echo 0 || echo 1")?;
+        let res = res.trim();
+        Ok(res.eq("0"))
+    }
+
+    fn get_files(data: &mut dyn Iterator<Item = &Node>) -> HashSet<String> {
+        let mut ans = HashSet::new();
+        for item in data {
+            if let FILE(s) = &item.meta {
+                ans.insert(s.to_string());
+            }
+            if let DIRECTORY(children) = &item.meta {
+                ans.extend(Store::get_files(&mut children.borrow().iter()));
+            }
+        }
+        ans
+    }
+
+    pub fn push(&self, address: String, port: Option<String>, force: bool) -> anyhow::Result<()> {
+        let agent = Self::login_server(address, port)?;
+
+        if !Self::remote_has_hbx(&agent)? {
+            if force {
+                info!("server install hbx ...");
+                agent.upload(&env::current_exe()?, &PathBuf::from("/usr/local/bin/hbx"))?;
+            } else {
+                bail!("remote server not install hbx!!!");
+            }
+        }
+
+        // 读取服务器端配置信息
+        let map = Self::remote_hbx_info(&agent)?;
+        // 下载配置文件到本地
+        let remote_config = map.get("config").ok_or(anyhow!("config info error"))?;
+        let remote_storage = map.get("storage").ok_or(anyhow!("storage info error"))?;
+
+        let tmp = tempfile::tempdir()?;
+        let dst_file = tmp.path().join(CONFIG_NAME);
+        agent.download(&dst_file, &PathBuf::from(remote_config))?;
+
+        // 加载远程配置文件
+        let mut remote_data: HashSet<Node> = from_str(&read_to_string(&dst_file)?)?;
+
+        // 比对差异文件
+        let local_set = Store::get_files(&mut self.data.iter());
+        let remote_set = Store::get_files(&mut remote_data.iter());
+        let diff = local_set
+            .difference(&remote_set)
+            .collect::<HashSet<&String>>();
+
+        // 上传差异文件
+        for item in diff {
+            let remote = PathBuf::from(remote_storage).join(PathBuf::from(item));
+            let local = self.store_dir().join(PathBuf::from(item));
+            agent.upload(&local, &remote)?;
+        }
+
+        // 合并本地配置到远程
+        remote_data.extend(self.data.clone());
+        agent.write_remote_file(&to_string(&remote_data)?, &PathBuf::from(remote_config))?;
+        Ok(())
+    }
+
+    fn remote_hbx_info(agent: &Agent) -> anyhow::Result<HashMap<String, String>> {
+        let info = agent.execute("hbx info")?;
+        let info = info.trim();
+        info!("remote info: {}", info);
+        let map = from_str::<HashMap<String, String>>(&info)?;
+        Ok(map)
+    }
+
+    fn login_server(address: String, port: Option<String>) -> anyhow::Result<Agent> {
+        let address: Vec<&str> = address.split("@").collect();
+
+        let username = address[0];
+        let host = address[1].to_string() + ":" + port.unwrap_or("22".into()).as_str();
+        info!("username : {}, host: {}", username, host);
+
+        // 登陆远程服务器
+        let mut agent = Agent::new()?;
+        agent.login(username, &host)?;
+        Ok(agent)
+    }
+
+    pub fn test(&self) {}
 }
