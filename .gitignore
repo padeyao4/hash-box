@@ -1,3 +1,4 @@
 /target
 .idea
 .env_test
+test.sh

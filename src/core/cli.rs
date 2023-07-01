@@ -41,17 +41,15 @@ pub enum Commands {
         /// ip or host , eg. root@127.0.0.1
         address: String,
         /// package name ,split by ' '
-        names: Vec<String>,
+        // names: Vec<String>,
         /// server port
         #[arg(short)]
-        port: Option<i32>,
+        port: Option<String>,
     },
 
     Push {
         /// ip or host. eg. root@127.0.0.1
         address: String,
-        /// package name ,split by ' '
-        names: Vec<String>,
         /// server port
         #[arg(short)]
         port: Option<String>,

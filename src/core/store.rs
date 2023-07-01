@@ -108,7 +108,7 @@ impl Store {
         Ok(())
     }
 
-    pub fn save(&self) -> anyhow::Result<()> {
+    fn save(&self) -> anyhow::Result<()> {
         let s = to_string(&self.data)?;
         AtomicFile::new(self.config_path(), AllowOverwrite).write(|f| f.write_all(s.as_bytes()))?;
         info!("save path is {}", self.config_path().display());
@@ -121,6 +121,7 @@ impl Store {
                 let root = self.build(path)?;
                 self.links(&root, path)?;
                 self.data.insert(root);
+                self.save()?;
             }
         }
         Ok(())
@@ -178,8 +179,10 @@ impl Store {
         ans
     }
 
-    pub fn delete(&mut self, name: &str) {
+    pub fn delete(&mut self, name: &str) -> anyhow::Result<()> {
         self.data.remove(&Node::sample(name));
+        self.save()?;
+        Ok(())
     }
 
     pub fn clear(&self) -> anyhow::Result<()> {
@@ -219,7 +222,6 @@ impl Store {
             info!("delete {:?}", path);
             fs::remove_file(path)?;
         }
-
         Ok(())
     }
 
@@ -236,71 +238,60 @@ impl Store {
         Ok(to_string(&map)?)
     }
 
-    pub fn pull(
-        &mut self,
-        names: Vec<String>,
-        address: String,
-        port: Option<i32>,
-    ) -> anyhow::Result<()> {
-        info!("pull tools {:?} from {:?}", names, address);
-        let address: Vec<&str> = address.split('@').collect();
+    pub fn pull(&mut self, address: String, port: Option<String>) -> anyhow::Result<()> {
+        let agent = Self::login_server(address, port)?;
 
-        let username = address[0];
-        let net_address = address[1].to_string() + ":" + port.unwrap_or(22).to_string().as_str();
-
-        // 登陆远程服务器
-        let mut agent = Agent::new()?;
-        agent.login(username, &net_address)?;
-
-        // 判断服务上是否安装hbx命令
-        let res = agent.execute("[ -f /usr/local/bin/hbx ] && echo 0 || echo 1")?;
-        let res = res.trim();
-        // 如果服务器上安装没安装hbx
-        if res.eq("1") {
-            bail!("server not install hbx, exiting")
+        if !Self::remote_has_hbx(&agent)? {
+            bail!("server not install hbx");
         }
 
         // 读取服务器端配置信息
-        let info = agent.execute("/usr/local/bin/hbx info")?;
-        let info = info.trim();
-        let map: HashMap<String, String> = from_str(&info)?;
+        let map = Self::remote_hbx_info(&agent)?;
+        let remote_config = map.get("config").ok_or(anyhow!("config info error"))?;
+        let remote_storage = map.get("storage").ok_or(anyhow!("storage info error"))?;
 
         // 下载配置文件到本地
-        let remote_config = map.get("config").ok_or(anyhow!("config info error"))?;
         let tmp = tempfile::tempdir()?;
-        let dst_dir = tmp.path();
-        agent.download(dst_dir, &PathBuf::from(remote_config))?;
+        let dst_file = tmp.path().join(CONFIG_NAME);
+        agent.download(&dst_file, &PathBuf::from(remote_config))?;
 
         // 加载远程配置文件
-        let content = read_to_string(&dst_dir.join(CONFIG_NAME))?;
-        info!("content: {}", content);
-        let remote_data: HashSet<Node> = from_str(&content)?;
+        let remote_data: HashSet<Node> = from_str(&read_to_string(&dst_file)?)?;
 
         // 比对差异文件
-        let s1 = Store::get_files(&mut self.data.iter());
-        let s2 = Store::get_files(&mut remote_data.iter());
-        let s3 = s2.difference(&s1).collect::<HashSet<&String>>();
+        let local_set = Store::get_files(&mut self.data.iter());
+        let remote_set = Store::get_files(&mut remote_data.iter());
+        let diff = remote_set
+            .difference(&local_set)
+            .collect::<HashSet<&String>>();
 
         // 下载差异文件
-        let remote_storage = map.get("storage").ok_or(anyhow!("storage info error"))?;
-        let local_storage = self.store_dir();
-        for item in s3 {
+        for item in diff {
             let remote = PathBuf::from(remote_storage).join(PathBuf::from(item));
-            let local = local_storage.join(PathBuf::from(item));
-            info!("download {:?} to {:?}", &remote, &local);
-            agent.download(&local, &remote)?;
+            let local = self.store_dir().join(PathBuf::from(item));
+            if !&local.exists() {
+                agent.download(&local, &remote)?;
+            }
         }
 
         // 合并远程和本地配置
         self.data.extend(remote_data);
+
+        self.save()?;
         Ok(())
+    }
+
+    fn remote_has_hbx(agent: &Agent) -> anyhow::Result<bool> {
+        // 判断服务上是否安装hbx命令
+        let res = agent.execute("[ -f /usr/local/bin/hbx ] && echo 0 || echo 1")?;
+        let res = res.trim();
+        Ok(res.eq("0"))
     }
 
     fn get_files(data: &mut dyn Iterator<Item = &Node>) -> HashSet<String> {
         let mut ans = HashSet::new();
         for item in data {
             if let FILE(s) = &item.meta {
-                info!("{}", s);
                 ans.insert(s.to_string());
             }
             if let DIRECTORY(children) = &item.meta {
@@ -310,19 +301,60 @@ impl Store {
         ans
     }
 
-    pub fn push(
-        &self,
-        names: Vec<String>,
-        address: String,
-        port: Option<String>,
-        force: bool,
-    ) -> anyhow::Result<()> {
-        info!("{:?} {}", names, address);
+    pub fn push(&self, address: String, port: Option<String>, force: bool) -> anyhow::Result<()> {
+        let agent = Self::login_server(address, port)?;
 
-        if names.len() == 0 {
-            bail!("tools are empty!!");
+        if !Self::remote_has_hbx(&agent)? {
+            if force {
+                info!("server install hbx ...");
+                agent.upload(&env::current_exe()?, &PathBuf::from("/usr/local/bin/hbx"))?;
+            } else {
+                bail!("remote server not install hbx!!!");
+            }
         }
 
+        // 读取服务器端配置信息
+        let map = Self::remote_hbx_info(&agent)?;
+        // 下载配置文件到本地
+        let remote_config = map.get("config").ok_or(anyhow!("config info error"))?;
+        let remote_storage = map.get("storage").ok_or(anyhow!("storage info error"))?;
+
+        let tmp = tempfile::tempdir()?;
+        let dst_file = tmp.path().join(CONFIG_NAME);
+        agent.download(&dst_file, &PathBuf::from(remote_config))?;
+
+        // 加载远程配置文件
+        let mut remote_data: HashSet<Node> = from_str(&read_to_string(&dst_file)?)?;
+
+        // 比对差异文件
+        let local_set = Store::get_files(&mut self.data.iter());
+        let remote_set = Store::get_files(&mut remote_data.iter());
+        let diff = local_set
+            .difference(&remote_set)
+            .collect::<HashSet<&String>>();
+
+        // 上传差异文件
+        for item in diff {
+            let remote = PathBuf::from(remote_storage).join(PathBuf::from(item));
+            let local = self.store_dir().join(PathBuf::from(item));
+            agent.upload(&local, &remote)?;
+        }
+
+        // 合并本地配置到远程
+        remote_data.extend(self.data.clone());
+        agent.write_remote_file(&to_string(&remote_data)?, &PathBuf::from(remote_config))?;
+        Ok(())
+    }
+
+    fn remote_hbx_info(agent: &Agent) -> anyhow::Result<HashMap<String, String>> {
+        let info = agent.execute("hbx info")?;
+        let info = info.trim();
+        info!("remote info: {}", info);
+        let map = from_str::<HashMap<String, String>>(&info)?;
+        Ok(map)
+    }
+
+    fn login_server(address: String, port: Option<String>) -> anyhow::Result<Agent> {
         let address: Vec<&str> = address.split("@").collect();
 
         let username = address[0];
@@ -331,72 +363,8 @@ impl Store {
 
         // 登陆远程服务器
         let mut agent = Agent::new()?;
-        info!("login");
         agent.login(username, &host)?;
-
-        info!("check hbx if exists");
-        // 判断服务上是否安装hbx命令
-        // 考虑2种情况
-        // 安装在固定目录，安装在其他目录
-        // todo
-        let res = agent.execute("[ command -v hbx &> /dev/null ] && echo 0 || echo 1")?;
-        let res = res.trim();
-        info!("remote response: {}", res);
-        // 如果服务器上安装没安装hbx,上传hbx命令到服务器
-        if res.eq("1") {
-            if force {
-                info!("server not install hbx, upload hbx to server");
-                agent.upload(&env::current_exe()?, &PathBuf::from("/usr/local/bin/hbx"))?;
-            } else {
-                bail!("remote server not install hbx!!!");
-            }
-        }
-
-        // 读取服务器端配置信息
-        let info = agent.execute("hbx info")?;
-        let info = info.trim();
-        info!("remote info: {}", info);
-        let map: HashMap<String, String> = from_str(&info)?;
-
-        // 下载配置文件到本地
-        let remote_config = map.get("config").ok_or(anyhow!("config info error"))?;
-        info!("remote config path: {}", remote_config);
-        let tmp = tempfile::tempdir()?;
-        let dst_file = tmp.path().join(CONFIG_NAME);
-        info!("download config from server");
-        let remote_path = PathBuf::from(remote_config);
-        info!("remote config path: {:?}", &remote_path);
-        info!("local template path: {:?}", dst_file);
-        agent.download(&dst_file, &remote_path)?;
-
-        // 加载远程配置文件
-        let content = read_to_string(&dst_file)?;
-        let mut remote_data: HashSet<Node> = from_str(&content)?;
-
-        // 比对差异文件
-        let local_data = Store::get_files(&mut self.data.iter());
-        info!("local data: {:?}", local_data);
-        let s2 = Store::get_files(&mut remote_data.iter());
-        info!("remote data: {:?}", s2);
-        let s3 = local_data.difference(&s2).collect::<HashSet<&String>>();
-        info!("diff: {:?}", s3);
-
-        // 上传差异文件
-        let remote_storage = map.get("storage").ok_or(anyhow!("storage info error"))?;
-        let local_storage = self.store_dir();
-        for item in s3 {
-            let remote = PathBuf::from(remote_storage).join(PathBuf::from(item));
-            let local = local_storage.join(PathBuf::from(item));
-            info!("upload {:?} to {:?}", &remote, &local);
-            agent.upload(&local, &remote)?;
-        }
-
-        // 合并本地配置到远程
-        remote_data.extend(self.data.clone());
-        let s = to_string(&remote_data)?;
-        agent.write_remote_file(&s, &PathBuf::from(remote_config))?;
-
-        Ok(())
+        Ok(agent)
     }
 
     pub fn test(&self) {}

@@ -15,18 +15,15 @@ pub fn run() -> anyhow::Result<()> {
     match cli.command {
         Commands::Add { path } => {
             store.add(&path)?;
-            store.save()?;
         }
         Commands::Get { name, path } => {
             store.get(&name, path)?;
         }
         Commands::Delete { name } => {
-            store.delete(&name);
-            store.save()?;
+            store.delete(&name)?;
         }
         Commands::List { .. } => {
-            let ans = store.list();
-            for item in ans {
+            for item in store.list() {
                 println!("{}", item);
             }
         }
@@ -38,18 +35,17 @@ pub fn run() -> anyhow::Result<()> {
         }
         Commands::Pull {
             address,
-            names,
+            // names,
             port,
         } => {
-            store.pull(names, address, port)?;
+            store.pull(address, port)?;
         }
         Commands::Push {
             address,
-            names,
             port,
             force,
         } => {
-            store.push(names, address, port, force)?;
+            store.push(address, port, force)?;
         }
         Commands::Test { .. } => {
             store.test();
