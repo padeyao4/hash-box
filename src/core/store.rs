@@ -318,6 +318,11 @@ impl Store {
         force: bool,
     ) -> anyhow::Result<()> {
         info!("{:?} {}", names, address);
+
+        if names.len() == 0 {
+            bail!("tools are empty!!");
+        }
+
         let address: Vec<&str> = address.split("@").collect();
 
         let username = address[0];
