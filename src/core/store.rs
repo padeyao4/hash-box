@@ -264,12 +264,13 @@ impl Store {
         let remote_set = Store::get_files(&mut remote_data.iter());
         let diff = remote_set
             .difference(&local_set)
-            .collect::<HashSet<&String>>();
+            .map(|f| f.to_string())
+            .collect::<HashSet<String>>();
 
         // 下载差异文件
         for item in diff {
-            let remote = PathBuf::from(remote_storage).join(PathBuf::from(item));
-            let local = self.store_dir().join(PathBuf::from(item));
+            let remote = PathBuf::from(remote_storage).join(PathBuf::from(&item));
+            let local = self.store_dir().join(PathBuf::from(&item));
             if !&local.exists() {
                 agent.download(&local, &remote)?;
             }
@@ -302,11 +303,18 @@ impl Store {
         ans
     }
 
-    pub fn push(&self, address: String, port: Option<String>, force: bool) -> anyhow::Result<()> {
+    pub fn push(
+        &self,
+        address: String,
+        names: Option<Vec<String>>,
+        port: Option<String>,
+        install: bool,
+        all: bool,
+    ) -> anyhow::Result<()> {
         let agent = Self::login_server(address, port)?;
 
         if !Self::remote_has_hbx(&agent)? {
-            if force {
+            if install {
                 info!("server install hbx ...");
                 agent.upload(&env::current_exe()?, &PathBuf::from("/usr/local/bin/hbx"))?;
             } else {
@@ -327,17 +335,35 @@ impl Store {
         // 加载远程配置文件
         let mut remote_data: HashSet<Node> = from_str(&read_to_string(&dst_file)?)?;
 
-        // 比对差异文件
-        let local_set = Store::get_files(&mut self.data.iter());
-        let remote_set = Store::get_files(&mut remote_data.iter());
-        let diff = local_set
-            .difference(&remote_set)
-            .collect::<HashSet<&String>>();
+        let diff = if all {
+            let local_set = Self::get_files(&mut self.data.iter());
+            let remote_set = Self::get_files(&mut remote_data.iter());
+            local_set
+                .difference(&remote_set)
+                .map(|f| f.to_string())
+                .collect::<HashSet<String>>()
+        } else {
+            let mut tmp = HashSet::new();
+            for name in names.ok_or(anyhow!("Names is an invalid input"))? {
+                let node = Node::sample(&name);
+                tmp.insert(
+                    self.data
+                        .get(&node)
+                        .ok_or(anyhow!("not contain the name"))?,
+                );
+            }
+            let local_set = Self::get_files(&mut tmp.into_iter());
+            let remote_set = Self::get_files(&mut remote_data.iter());
+            local_set
+                .difference(&remote_set)
+                .map(|f| f.to_string())
+                .collect::<HashSet<String>>()
+        };
 
         // 上传差异文件
         for item in diff {
-            let remote = PathBuf::from(remote_storage).join(PathBuf::from(item));
-            let local = self.store_dir().join(PathBuf::from(item));
+            let remote = PathBuf::from(remote_storage).join(PathBuf::from(&item));
+            let local = self.store_dir().join(PathBuf::from(&item));
             agent.upload(&local, &remote)?;
         }
 

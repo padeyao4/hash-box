@@ -15,8 +15,6 @@ pub enum Commands {
     Add {
         /// the path of the file
         path: PathBuf,
-        // #[arg(short, long)]
-        // force: bool,
     },
 
     Delete {
@@ -48,12 +46,15 @@ pub enum Commands {
     Push {
         /// ip or host. eg. root@127.0.0.1
         address: String,
+        /// item names,split by space
+        names: Option<Vec<String>>,
         /// server port
         #[arg(short)]
         port: Option<String>,
         /// if server not install hbx then install hbx
-        #[arg(short)]
-        force: bool,
+        #[arg(short, long)]
+        install: bool,
+        #[arg(short, long)]
+        all: bool,
     },
-    Test {},
 }

@@ -39,13 +39,12 @@ pub fn run() -> anyhow::Result<()> {
         }
         Commands::Push {
             address,
+            names,
             port,
-            force,
+            install,
+            all,
         } => {
-            store.push(address, port, force)?;
-        }
-        Commands::Test { .. } => {
-            store.test();
+            store.push(address, names, port, install, all)?;
         }
     }
     Ok(())
