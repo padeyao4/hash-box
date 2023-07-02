@@ -30,9 +30,6 @@ pub fn run() -> anyhow::Result<()> {
         Commands::Info { .. } => {
             println!("{}", store.info()?);
         }
-        Commands::Clear { .. } => {
-            store.clear()?;
-        }
         Commands::Pull {
             address,
             // names,

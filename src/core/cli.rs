@@ -35,8 +35,6 @@ pub enum Commands {
 
     Info {},
 
-    Clear {},
-
     Pull {
         /// ip or host , eg. root@127.0.0.1
         address: String,

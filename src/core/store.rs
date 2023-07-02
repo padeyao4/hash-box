@@ -182,10 +182,11 @@ impl Store {
     pub fn delete(&mut self, name: &str) -> anyhow::Result<()> {
         self.data.remove(&Node::sample(name));
         self.save()?;
+        self.clear()?;
         Ok(())
     }
 
-    pub fn clear(&self) -> anyhow::Result<()> {
+    fn clear(&self) -> anyhow::Result<()> {
         let names = walkdir::WalkDir::new(self.store_dir())
             .follow_links(false)
             .into_iter()
