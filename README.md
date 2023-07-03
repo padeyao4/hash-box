@@ -31,10 +31,6 @@ hbx --help
 
 可以利用cross-rs进行交叉编译解决服务器不同glibc兼容问题
 
-## todo
-
-- p2p方式批量同步
-
 ## License
 
 Apache-2.0

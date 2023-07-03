@@ -48,9 +48,10 @@ impl Agent {
 
     pub fn upload(&self, local_path: &Path, remote_file: &Path) -> anyhow::Result<()> {
         let size = local_path.metadata()?.len();
-        info!("upload {:?} to {:?}", local_path, remote_file);
+        info!("size {} upload {:?} to {:?}", size, local_path, remote_file);
         let mut channel = self.session.scp_send(remote_file, 0o755, size, None)?;
-        channel.write(&fs::read(local_path)?)?;
+        channel.write_all(&fs::read(local_path)?)?;
+
         // Close the channel and wait for the whole content to be transferred
         channel.send_eof()?;
         channel.wait_eof()?;
@@ -61,13 +62,13 @@ impl Agent {
 
     pub fn write_remote_file(&self, content: &str, remote_path: &Path) -> anyhow::Result<()> {
         let size = content.len() as u64;
-        let mut remote_file = self.session.scp_send(remote_path, 0o644, size, None)?;
-        remote_file.write(content.as_bytes())?;
+        let mut channel = self.session.scp_send(remote_path, 0o644, size, None)?;
+        channel.write(content.as_bytes())?;
         // Close the channel and wait for the whole content to be transferred
-        remote_file.send_eof()?;
-        remote_file.wait_eof()?;
-        remote_file.close()?;
-        remote_file.wait_close()?;
+        channel.send_eof()?;
+        channel.wait_eof()?;
+        channel.close()?;
+        channel.wait_close()?;
         Ok(())
     }
 

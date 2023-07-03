@@ -182,10 +182,11 @@ impl Store {
     pub fn delete(&mut self, name: &str) -> anyhow::Result<()> {
         self.data.remove(&Node::sample(name));
         self.save()?;
+        self.clear()?;
         Ok(())
     }
 
-    pub fn clear(&self) -> anyhow::Result<()> {
+    fn clear(&self) -> anyhow::Result<()> {
         let names = walkdir::WalkDir::new(self.store_dir())
             .follow_links(false)
             .into_iter()
@@ -238,7 +239,13 @@ impl Store {
         Ok(to_string(&map)?)
     }
 
-    pub fn pull(&mut self, address: String, port: Option<String>) -> anyhow::Result<()> {
+    pub fn pull(
+        &mut self,
+        address: String,
+        names: Vec<String>,
+        port: Option<String>,
+        all: bool,
+    ) -> anyhow::Result<()> {
         let agent = Self::login_server(address, port)?;
 
         if !Self::remote_has_hbx(&agent)? {
@@ -259,23 +266,24 @@ impl Store {
         let remote_data: HashSet<Node> = from_str(&read_to_string(&dst_file)?)?;
 
         // 比对差异文件
-        let local_set = Store::get_files(&mut self.data.iter());
-        let remote_set = Store::get_files(&mut remote_data.iter());
-        let diff = remote_set
-            .difference(&local_set)
-            .collect::<HashSet<&String>>();
+        let mut target = HashSet::new();
+        Self::filter(names, all, &remote_data, &mut target)?;
+        let diff = Self::get_diff(
+            &mut target,
+            &mut self.data.iter().collect::<HashSet<&Node>>(),
+        )?;
 
         // 下载差异文件
         for item in diff {
-            let remote = PathBuf::from(remote_storage).join(PathBuf::from(item));
-            let local = self.store_dir().join(PathBuf::from(item));
+            let remote = PathBuf::from(remote_storage).join(PathBuf::from(&item));
+            let local = self.store_dir().join(PathBuf::from(&item));
             if !&local.exists() {
                 agent.download(&local, &remote)?;
             }
         }
 
         // 合并远程和本地配置
-        self.data.extend(remote_data);
+        self.data.extend(target.into_iter().map(|f| f.to_owned()));
 
         self.save()?;
         Ok(())
@@ -301,11 +309,18 @@ impl Store {
         ans
     }
 
-    pub fn push(&self, address: String, port: Option<String>, force: bool) -> anyhow::Result<()> {
+    pub fn push(
+        &self,
+        address: String,
+        names: Vec<String>,
+        port: Option<String>,
+        install: bool,
+        all: bool,
+    ) -> anyhow::Result<()> {
         let agent = Self::login_server(address, port)?;
 
         if !Self::remote_has_hbx(&agent)? {
-            if force {
+            if install {
                 info!("server install hbx ...");
                 agent.upload(&env::current_exe()?, &PathBuf::from("/usr/local/bin/hbx"))?;
             } else {
@@ -326,23 +341,48 @@ impl Store {
         // 加载远程配置文件
         let mut remote_data: HashSet<Node> = from_str(&read_to_string(&dst_file)?)?;
 
-        // 比对差异文件
-        let local_set = Store::get_files(&mut self.data.iter());
-        let remote_set = Store::get_files(&mut remote_data.iter());
-        let diff = local_set
-            .difference(&remote_set)
-            .collect::<HashSet<&String>>();
+        // 计算差异
+        let mut target = HashSet::new();
+        Self::filter(names, all, &self.data, &mut target)?;
+        let diff = Self::get_diff(&mut target, &mut remote_data.iter().collect())?;
 
         // 上传差异文件
         for item in diff {
-            let remote = PathBuf::from(remote_storage).join(PathBuf::from(item));
-            let local = self.store_dir().join(PathBuf::from(item));
+            let remote = PathBuf::from(remote_storage).join(PathBuf::from(&item));
+            let local = self.store_dir().join(PathBuf::from(&item));
             agent.upload(&local, &remote)?;
         }
 
         // 合并本地配置到远程
-        remote_data.extend(self.data.clone());
+        remote_data.extend(target.into_iter().map(|f| f.to_owned()));
         agent.write_remote_file(&to_string(&remote_data)?, &PathBuf::from(remote_config))?;
+        Ok(())
+    }
+
+    fn get_diff(src: &HashSet<&Node>, other: &HashSet<&Node>) -> anyhow::Result<HashSet<String>> {
+        let ans = Self::get_files(&mut src.iter().map(|f| f.to_owned()))
+            .difference(&Self::get_files(&mut other.iter().map(|f| f.to_owned())))
+            .map(|s| s.to_string())
+            .collect();
+        Ok(ans)
+    }
+
+    fn filter<'a>(
+        names: Vec<String>,
+        all: bool,
+        set: &'a HashSet<Node>,
+        ans: &mut HashSet<&'a Node>,
+    ) -> anyhow::Result<()> {
+        if all {
+            ans.extend(set);
+        } else {
+            for name in names {
+                ans.insert(
+                    set.get(&Node::sample(&name))
+                        .ok_or(anyhow!("not contain the name"))?,
+                );
+            }
+        }
         Ok(())
     }
 
@@ -355,6 +395,7 @@ impl Store {
     }
 
     fn login_server(address: String, port: Option<String>) -> anyhow::Result<Agent> {
+        // 正则判断是别名，还是网络地址 todo
         let address: Vec<&str> = address.split("@").collect();
 
         let username = address[0];
@@ -366,6 +407,4 @@ impl Store {
         agent.login(username, &host)?;
         Ok(agent)
     }
-
-    pub fn test(&self) {}
 }

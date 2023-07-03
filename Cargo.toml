@@ -22,8 +22,13 @@ dotenv = "0.15.0"
 env_logger = "0.10.0"
 log = "0.4.17"
 md-5 = "0.10.5"
+regex = "1.8.4"
 serde = { version = "1.0.163", features = ["rc", "derive"] }
 serde_json = "1.0.96"
 ssh2 = { version = "0.9.4", features = ["vendored-openssl"] }
 tempfile = "3.5.0"
 walkdir = "2.3.3"
+
+
+[package.metadata.cross.target.x86_64-unknown-linux-musl]
+xargo = false
