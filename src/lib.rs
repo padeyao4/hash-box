@@ -32,10 +32,11 @@ pub fn run() -> anyhow::Result<()> {
         }
         Commands::Pull {
             address,
-            // names,
+            names,
             port,
+            all,
         } => {
-            store.pull(address, port)?;
+            store.pull(address, names, port, all)?;
         }
         Commands::Push {
             address,

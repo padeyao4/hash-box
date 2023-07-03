@@ -37,23 +37,27 @@ pub enum Commands {
         /// ip or host , eg. root@127.0.0.1
         address: String,
         /// package name ,split by ' '
-        // names: Vec<String>,
+        names: Vec<String>,
         /// server port
         #[arg(short)]
         port: Option<String>,
+        /// all tools, if -a/--all has set, will ignore names
+        #[arg(short, long)]
+        all: bool,
     },
 
     Push {
         /// ip or host. eg. root@127.0.0.1
         address: String,
-        /// item names,split by space
-        names: Option<Vec<String>>,
+        /// item names, split by space
+        names: Vec<String>,
         /// server port
-        #[arg(short)]
+        #[arg(short, long)]
         port: Option<String>,
         /// if server not install hbx then install hbx
         #[arg(short, long)]
         install: bool,
+        /// all tools, if -a/--all has set, will ignore names
         #[arg(short, long)]
         all: bool,
     },
